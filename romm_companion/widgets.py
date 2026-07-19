@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, Iterable
+from typing import Iterable
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import (
@@ -35,17 +35,10 @@ def set_artwork(label: QLabel, item: LibraryItem | None) -> None:
 
 
 class LibraryCard(QFrame):
-    def __init__(
-        self,
-        item: LibraryItem,
-        selected_callback: Callable[[LibraryItem], None] | None = None,
-    ) -> None:
+    def __init__(self, item: LibraryItem) -> None:
         super().__init__()
         self.item = item
-        self.selected_callback = selected_callback
         self.setObjectName("card")
-        if selected_callback is not None:
-            self.setCursor(Qt.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setMinimumWidth(190)
         self.setFixedHeight(292)
@@ -59,35 +52,26 @@ class LibraryCard(QFrame):
         cover.setAlignment(Qt.AlignCenter)
         cover.setScaledContents(True)
         cover.setFixedHeight(204)
-        cover.setAttribute(Qt.WA_TransparentForMouseEvents)
         set_artwork(cover, item)
         layout.addWidget(cover)
 
         title = QLabel(item.title)
         title.setObjectName("gameTitle")
         title.setWordWrap(True)
-        title.setAttribute(Qt.WA_TransparentForMouseEvents)
         layout.addWidget(title)
 
         metadata = [value for value in (item.platform, item.release_year) if value]
         meta = QLabel("  •  ".join(metadata))
         meta.setObjectName("muted")
-        meta.setAttribute(Qt.WA_TransparentForMouseEvents)
         layout.addWidget(meta)
-
-    def mousePressEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.LeftButton and self.selected_callback is not None:
-            self.selected_callback(self.item)
-        super().mousePressEvent(event)
 
 
 class LibraryGrid(QWidget):
     """Scrollable, data-driven card grid with no fixed record limit."""
 
-    def __init__(self, selected_callback: Callable[[LibraryItem], None] | None = None) -> None:
+    def __init__(self) -> None:
         super().__init__()
         self._items: tuple[LibraryItem, ...] = ()
-        self._selected_callback = selected_callback
         self._columns = 0
         self._layout = QGridLayout(self)
         self._layout.setContentsMargins(0, 0, 6, 0)
@@ -117,9 +101,7 @@ class LibraryGrid(QWidget):
         columns = self._fitting_columns() if self._items else 0
         for index, item in enumerate(self._items):
             self._layout.addWidget(
-                LibraryCard(item, self._selected_callback),
-                index // columns,
-                index % columns,
+                LibraryCard(item), index // columns, index % columns
             )
         for column in range(columns):
             self._layout.setColumnStretch(column, 1)
