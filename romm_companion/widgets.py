@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -40,7 +40,7 @@ class LibraryCard(QFrame):
         super().__init__()
         self.item = item
         self.setObjectName("card")
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMinimumWidth(190)
         self.setFixedHeight(292)
 
@@ -50,7 +50,7 @@ class LibraryCard(QFrame):
 
         cover = QLabel()
         cover.setObjectName("artwork")
-        cover.setAlignment(Qt.AlignCenter)
+        cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
         cover.setScaledContents(True)
         cover.setFixedHeight(204)
         set_artwork(cover, item)
@@ -83,7 +83,7 @@ class LibraryGrid(QWidget):
         self._items = tuple(items)
         self._rebuild()
 
-    def resizeEvent(self, event) -> None:  # noqa: N802
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
         if self._items and self._fitting_columns() != self._columns:
             self._rebuild()
