@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QFrame,
@@ -25,6 +25,7 @@ from .connection import (
     ConnectionPanel,
     ConnectionSession,
 )
+from .library_loader import LibraryClientFactory, LibraryLoader
 from .library_view import LibraryView
 from .models import LibraryItem
 from .style import STYLE
@@ -52,6 +53,7 @@ class MainWindow(QMainWindow):
             client_factory,
             self,
         )
+        self.library_loader = LibraryLoader(self)
         self.library_view = LibraryView(items)
 
         root = QWidget()
@@ -70,8 +72,13 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         self.setStatusBar(QStatusBar())
 
-        self._close_after_check = False
+        self._library_generation = 0
+        self._active_library_generation: int | None = None
+        self._pending_library_load: tuple[int, LibraryClientFactory] | None = None
+        self._close_after_background_work = False
+        self._closing = False
         self._connect_connection_signals()
+        self._connect_library_signals()
         self.connection_session.initialize()
 
     def _build_top_bar(self) -> QWidget:
@@ -134,18 +141,31 @@ class MainWindow(QMainWindow):
         )
         self.connection_session.connecting.connect(self._show_connecting)
         self.connection_session.connected.connect(self._show_connected)
+        self.connection_session.connected.connect(self._queue_library_load)
         self.connection_session.disconnected.connect(self._show_disconnected)
+        self.connection_session.disconnected.connect(self._clear_library)
         self.connection_session.finished.connect(
             lambda: self.connection_panel.set_busy(False)
         )
         self.connection_session.finished.connect(self._finish_pending_close)
         self.connection_session.message_changed.connect(self.statusBar().showMessage)
 
+    def _connect_library_signals(self) -> None:
+        self.library_loader.items_available.connect(self._library_items_available)
+        self.library_loader.succeeded.connect(self._library_loaded)
+        self.library_loader.failed.connect(self._library_failed)
+        self.library_loader.finished.connect(self._library_load_finished)
+        self.library_loader.finished.connect(self._finish_pending_close)
+
     def show_connection_popup(self) -> None:
         self.connection_panel.show_for(self.source_status)
 
     def set_library_items(self, items: Iterable[LibraryItem]) -> None:
         self.library_view.set_items(items)
+        self._update_platform_summary()
+
+    def append_library_items(self, items: Iterable[LibraryItem]) -> None:
+        self.library_view.append_items(items)
         self._update_platform_summary()
 
     def _update_platform_summary(self) -> None:
@@ -166,15 +186,76 @@ class MainWindow(QMainWindow):
         self.connection_panel.show_disconnected()
         self.source_status.setText("NOT CONNECTED")
 
+    def _queue_library_load(self, _config: ConnectionConfig) -> None:
+        client_factory = self.connection_session.active_client_factory
+        if client_factory is None or self._closing:
+            return
+        self._library_generation += 1
+        self._pending_library_load = (self._library_generation, client_factory)
+        QTimer.singleShot(0, self._start_pending_library_load)
+
+    def _start_pending_library_load(self) -> None:
+        pending = self._pending_library_load
+        if pending is None or self._closing or self.library_loader.is_running:
+            return
+        generation, client_factory = pending
+        self._pending_library_load = None
+        if (
+            generation != self._library_generation
+            or self.connection_session.active_connection is None
+        ):
+            return
+        self._active_library_generation = generation
+        self.set_library_items(())
+        self.statusBar().showMessage("Loading library")
+        self.library_loader.start(client_factory)
+
+    def _library_items_available(self, items: tuple[LibraryItem, ...]) -> None:
+        if self._active_library_generation != self._library_generation:
+            return
+        self.append_library_items(items)
+
+    def _library_loaded(self) -> None:
+        if self._active_library_generation != self._library_generation:
+            return
+        self.statusBar().showMessage("Connected")
+
+    def _library_failed(self, message: str) -> None:
+        if self._active_library_generation == self._library_generation:
+            self.statusBar().showMessage(message)
+
+    def _library_load_finished(self) -> None:
+        self._active_library_generation = None
+        self._start_pending_library_load()
+
+    def _clear_library(self) -> None:
+        self._library_generation += 1
+        self._pending_library_load = None
+        self.set_library_items(())
+
     def _finish_pending_close(self) -> None:
-        if self._close_after_check:
-            self._close_after_check = False
+        if (
+            self._close_after_background_work
+            and not self.connection_session.is_running
+            and not self.library_loader.is_running
+        ):
+            self._close_after_background_work = False
             self.close()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
-        if self.connection_session.is_running:
-            self._close_after_check = True
-            self.statusBar().showMessage("Closing after the connection check")
+        self._closing = True
+        self._pending_library_load = None
+        checking_connection = self.connection_session.is_running
+        loading_library = self.library_loader.is_running
+        if checking_connection or loading_library:
+            self._close_after_background_work = True
+            if checking_connection and loading_library:
+                message = "Closing after background work"
+            elif checking_connection:
+                message = "Closing after the connection check"
+            else:
+                message = "Closing after the library load"
+            self.statusBar().showMessage(message)
             event.ignore()
             return
         super().closeEvent(event)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
@@ -12,7 +13,7 @@ from ..config import (
     ConnectionStore,
     is_valid_client_token,
 )
-from .check import ClientFactory, ConnectionCheck
+from .check import ClientFactory, ConnectionCheck, ManagedReadOnlyRommApi
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ class ConnectionSession(QObject):
     ) -> None:
         super().__init__(parent)
         self._store = store
+        self._client_factory = client_factory
         self._check = ConnectionCheck(client_factory, self)
         self._check.succeeded.connect(self._connection_succeeded)
         self._check.failed.connect(self._connection_failed)
@@ -47,6 +49,7 @@ class ConnectionSession(QObject):
         self._pending: _PendingConnection | None = None
         self._startup_connection: ConnectionConfig | None = None
         self._active_connection: ConnectionConfig | None = None
+        self._active_token: str | None = None
 
     @property
     def is_running(self) -> bool:
@@ -55,6 +58,16 @@ class ConnectionSession(QObject):
     @property
     def active_connection(self) -> ConnectionConfig | None:
         return self._active_connection
+
+    @property
+    def active_client_factory(self) -> Callable[[], ManagedReadOnlyRommApi] | None:
+        """A factory for authenticated clients while connected, else None."""
+        config = self._active_connection
+        token = self._active_token
+        if config is None or token is None:
+            return None
+        factory = self._client_factory
+        return lambda: factory(config, token)
 
     def initialize(self) -> None:
         try:
@@ -89,7 +102,7 @@ class ConnectionSession(QObject):
     def disconnect_requested(self) -> None:
         if self.is_running:
             return
-        self._active_connection = None
+        self._clear_active_connection()
         self.disconnected.emit()
         self.message_changed.emit("Disconnected")
 
@@ -114,7 +127,7 @@ class ConnectionSession(QObject):
         *,
         persist_on_success: bool,
     ) -> None:
-        self._active_connection = None
+        self._clear_active_connection()
         self._pending = _PendingConnection(config, token, persist_on_success)
         self.connecting.emit()
         self.message_changed.emit("Connecting")
@@ -129,19 +142,24 @@ class ConnectionSession(QObject):
             try:
                 self._store.save(pending.config, pending.token)
             except ConnectionStorageError:
-                self._active_connection = None
+                self._clear_active_connection()
                 self.disconnected.emit()
                 self.message_changed.emit("Connection settings could not be saved")
                 return
         self._active_connection = pending.config
+        self._active_token = pending.token
         self.connected.emit(pending.config)
         self.message_changed.emit("Connected")
 
     @Slot(str)
     def _connection_failed(self, message: str) -> None:
-        self._active_connection = None
+        self._clear_active_connection()
         self.disconnected.emit()
         self.message_changed.emit(message)
+
+    def _clear_active_connection(self) -> None:
+        self._active_connection = None
+        self._active_token = None
 
     @Slot()
     def _connection_finished(self) -> None:

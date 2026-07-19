@@ -83,6 +83,27 @@ class LibraryGrid(QWidget):
         self._items = tuple(items)
         self._rebuild()
 
+    def append_items(self, items: Iterable[LibraryItem]) -> None:
+        additions = tuple(items)
+        if not additions:
+            return
+        start = len(self._items)
+        self._items += additions
+        columns = self._fitting_columns()
+        if self._columns not in (0, columns):
+            self._rebuild()
+            return
+        if self._columns == 0:
+            for column in range(columns):
+                self._layout.setColumnStretch(column, 1)
+            self._columns = columns
+        for index, item in enumerate(additions, start=start):
+            self._layout.addWidget(
+                LibraryCard(item),
+                index // columns,
+                index % columns,
+            )
+
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
         if self._items and self._fitting_columns() != self._columns:

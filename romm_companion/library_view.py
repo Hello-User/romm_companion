@@ -80,6 +80,14 @@ class LibraryView(QWidget):
         self.grid.set_items(self._items)
         self._update_state()
 
+    def append_items(self, items: Iterable[LibraryItem]) -> None:
+        additions = tuple(items)
+        if not additions:
+            return
+        self._items += additions
+        self.grid.append_items(additions)
+        self._update_state()
+
     def _update_state(self) -> None:
         has_items = bool(self._items)
         if not has_items:

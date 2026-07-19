@@ -54,30 +54,41 @@ def make_connection_store() -> tuple[
 
 class FakeRommApiClient:
     def __init__(self, payload: object = None, error: Exception | None = None) -> None:
-        self.payload = [] if payload is None else payload
+        self.payload = payload
         self.error = error
         self.closed = False
 
     def get_json(self, endpoint: str, *, params=None):
         if self.error is not None:
             raise self.error
-        return self.payload
+        if self.payload is not None:
+            return self.payload
+        if endpoint == "roms":
+            return {"items": [], "total": 0}
+        return []
 
     def close(self) -> None:
         self.closed = True
 
 
-def wait_for_connection(window: MainWindow) -> None:
+def wait_for_background_work(window: MainWindow) -> None:
     for _ in range(200):
         QApplication.processEvents()
         if (
             not window.connection_session.is_running
+            and not window.library_loader.is_running
             and window.source_status.text() != "CONNECTING"
         ):
             QApplication.processEvents()
-            return
+            QTest.qWait(1)
+            QApplication.processEvents()
+            if (
+                not window.connection_session.is_running
+                and not window.library_loader.is_running
+            ):
+                return
         QTest.qWait(5)
-    raise AssertionError("Connection check did not finish")
+    raise AssertionError("Background work did not finish")
 
 
 class MainWindowSmokeTest(unittest.TestCase):
@@ -128,7 +139,7 @@ class MainWindowSmokeTest(unittest.TestCase):
         set_artwork(label, LibraryItem(identifier="2", title="Game"))
         self.assertEqual(label.text(), "NO ARTWORK")
 
-    def test_grid_rebuilds_only_when_the_column_count_changes(self):
+    def test_grid_appends_cards_and_rebuilds_only_for_column_changes(self):
         grid = LibraryGrid()
         self.addCleanup(grid.close)
         grid.show()
@@ -144,24 +155,46 @@ class MainWindowSmokeTest(unittest.TestCase):
         original_cards = grid.findChildren(LibraryCard)
         self.assertEqual(len(original_cards), len(items))
 
+        additions = [
+            LibraryItem(identifier="6", title="Game 6"),
+            LibraryItem(identifier="7", title="Game 7"),
+        ]
+        grid.append_items(additions)
+        self.app.processEvents()
+        appended_cards = grid.findChildren(LibraryCard)
+        self.assertEqual(len(appended_cards), len(items) + len(additions))
+        self.assertTrue(all(card in appended_cards for card in original_cards))
+
         grid.resize(710, 600)
         self.app.processEvents()
-        self.assertEqual(grid.findChildren(LibraryCard), original_cards)
+        self.assertEqual(grid.findChildren(LibraryCard), appended_cards)
 
         grid.resize(460, 600)
         self.app.processEvents()
         rebuilt_cards = grid.findChildren(LibraryCard)
-        self.assertEqual(len(rebuilt_cards), len(items))
-        self.assertNotEqual(rebuilt_cards, original_cards)
+        self.assertEqual(len(rebuilt_cards), len(items) + len(additions))
+        self.assertNotEqual(rebuilt_cards, appended_cards)
 
     def test_not_connected_opens_client_token_popup_and_connects(self):
         store, settings, secrets = make_connection_store()
         clients: list[FakeRommApiClient] = []
         connection_values = []
+        library_payload = {
+            "items": [
+                {
+                    "id": 7,
+                    "name": "Chrono Trigger",
+                    "platform_display_name": "SNES",
+                }
+            ],
+            "total": 1,
+        }
 
         def client_factory(config, token):
             connection_values.append((config, token))
-            client = FakeRommApiClient()
+            client = FakeRommApiClient(
+                payload=library_payload if clients else None,
+            )
             clients.append(client)
             return client
 
@@ -203,7 +236,7 @@ class MainWindowSmokeTest(unittest.TestCase):
         self.assertTrue(panel.connect_button.isEnabled())
 
         panel.connect_button.click()
-        wait_for_connection(window)
+        wait_for_background_work(window)
 
         self.assertEqual(store.load_config().server_url, "https://romm.example.test")
         self.assertEqual(connection_values[0], (store.load_config(), token))
@@ -216,7 +249,17 @@ class MainWindowSmokeTest(unittest.TestCase):
             window.connection_session.active_connection,
             store.load_config(),
         )
+        factory = window.connection_session.active_client_factory
+        self.assertIsNotNone(factory)
+        authenticated_client = factory()
+        self.addCleanup(authenticated_client.close)
+        self.assertEqual(connection_values[-1], (store.load_config(), token))
         self.assertEqual(window.statusBar().currentMessage(), "Connected")
+        self.assertEqual(
+            [item.title for item in window.library_view.items],
+            ["Chrono Trigger"],
+        )
+        self.assertTrue(clients[1].closed)
         self.assertIs(panel.stack.currentWidget(), panel.connected_view)
         self.assertEqual(panel.connection_status_label.text(), "CONNECTED")
         self.assertEqual(
@@ -230,7 +273,10 @@ class MainWindowSmokeTest(unittest.TestCase):
 
         self.assertEqual(window.source_status.text(), "NOT CONNECTED")
         self.assertIsNone(window.connection_session.active_connection)
+        self.assertIsNone(window.connection_session.active_client_factory)
         self.assertEqual(window.statusBar().currentMessage(), "Disconnected")
+        self.assertEqual(window.library_view.items, ())
+        self.assertEqual(window.platform_summary.text(), "")
         self.assertIs(panel.stack.currentWidget(), panel.connection_form)
         self.assertEqual(store.load_config().server_url, "https://romm.example.test")
         self.assertEqual(secrets.token, token)
@@ -252,7 +298,7 @@ class MainWindowSmokeTest(unittest.TestCase):
         panel.server_url_input.setText("https://new.example.test")
         panel.client_token_input.setText("rmm_" + ("a" * 64))
         panel.connect_button.click()
-        wait_for_connection(window)
+        wait_for_background_work(window)
 
         self.assertEqual(store.load_config().server_url, "https://old.example.test")
         self.assertEqual(secrets.token, "rmm_" + ("b" * 64))
@@ -278,12 +324,13 @@ class MainWindowSmokeTest(unittest.TestCase):
         )
         self.addCleanup(window.close)
         window.show()
-        wait_for_connection(window)
+        wait_for_background_work(window)
 
-        self.assertEqual(len(connection_values), 1)
+        self.assertEqual(len(connection_values), 2)
         self.assertEqual(connection_values[0], (store.load_config(), token))
         self.assertEqual(window.source_status.text(), "CONNECTED")
         self.assertEqual(secrets.set_calls, 0)
+        self.assertIsNotNone(window.connection_session.active_client_factory)
         self.assertIs(
             window.connection_panel.stack.currentWidget(),
             window.connection_panel.connected_view,
@@ -325,7 +372,7 @@ class MainWindowSmokeTest(unittest.TestCase):
         )
 
         release.set()
-        wait_for_connection(window)
+        wait_for_background_work(window)
         self.app.processEvents()
 
         self.assertFalse(window.isVisible())
@@ -357,6 +404,108 @@ class MainWindowSmokeTest(unittest.TestCase):
         panel.client_token_input.setText("rmm_" + ("a" * 64))
 
         self.assertTrue(panel.connect_button.isEnabled())
+
+    def test_library_pages_appear_while_later_pages_are_loading(self):
+        release = threading.Event()
+        second_page_started = threading.Event()
+
+        class BlockingLibraryClient(FakeRommApiClient):
+            def get_json(self, endpoint, *, params=None):
+                if endpoint == "roms":
+                    offset = (params or {}).get("offset", 0)
+                    if offset == 0:
+                        return {
+                            "items": [{"id": 9, "name": "EarthBound"}],
+                            "total": 2,
+                        }
+                    second_page_started.set()
+                    release.wait(5)
+                    return {
+                        "items": [{"id": 10, "name": "Mother 3"}],
+                        "total": 2,
+                    }
+                return super().get_json(endpoint, params=params)
+
+        store, _, _ = make_connection_store()
+        clients: list[FakeRommApiClient] = []
+
+        def client_factory(config, token):
+            del config, token
+            client = BlockingLibraryClient() if clients else FakeRommApiClient()
+            clients.append(client)
+            return client
+
+        window = MainWindow(connection_store=store, client_factory=client_factory)
+        self.addCleanup(window.close)
+        self.addCleanup(release.set)
+        window.show()
+        panel = window.connection_panel
+        panel.server_url_input.setText("https://romm.example.test")
+        panel.client_token_input.setText("rmm_" + ("a" * 64))
+        panel.connect_button.click()
+
+        for _ in range(200):
+            self.app.processEvents()
+            if second_page_started.is_set() and window.library_view.items:
+                break
+            QTest.qWait(5)
+        self.assertTrue(second_page_started.is_set())
+        self.assertTrue(window.library_loader.is_running)
+        self.assertEqual(window.statusBar().currentMessage(), "Loading library")
+        self.assertEqual(
+            [item.title for item in window.library_view.items],
+            ["EarthBound"],
+        )
+        first_card = window.library_view.grid.findChildren(LibraryCard)[0]
+
+        release.set()
+        wait_for_background_work(window)
+
+        self.assertEqual(
+            [item.title for item in window.library_view.items],
+            ["EarthBound", "Mother 3"],
+        )
+        self.assertIn(
+            first_card,
+            window.library_view.grid.findChildren(LibraryCard),
+        )
+        self.assertEqual(window.statusBar().currentMessage(), "Connected")
+        self.assertTrue(clients[1].closed)
+
+    def test_later_library_failure_keeps_available_items(self):
+        store, _, _ = make_connection_store()
+        clients: list[FakeRommApiClient] = []
+
+        class PartialFailureClient(FakeRommApiClient):
+            def get_json(self, endpoint, *, params=None):
+                if endpoint == "roms" and (params or {}).get("offset", 0) == 0:
+                    return {
+                        "items": [{"id": 11, "name": "Mother"}],
+                        "total": 2,
+                    }
+                raise RommAuthenticationError("Library denied")
+
+        def client_factory(config, token):
+            del config, token
+            client = PartialFailureClient() if clients else FakeRommApiClient()
+            clients.append(client)
+            return client
+
+        window = MainWindow(connection_store=store, client_factory=client_factory)
+        self.addCleanup(window.close)
+        panel = window.connection_panel
+        panel.server_url_input.setText("https://romm.example.test")
+        panel.client_token_input.setText("rmm_" + ("a" * 64))
+        panel.connect_button.click()
+
+        wait_for_background_work(window)
+
+        self.assertEqual(window.statusBar().currentMessage(), "Library denied")
+        self.assertEqual(
+            [item.title for item in window.library_view.items],
+            ["Mother"],
+        )
+        self.assertTrue(clients[1].closed)
 
 
 if __name__ == "__main__":
