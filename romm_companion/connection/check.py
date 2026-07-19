@@ -7,9 +7,9 @@ from typing import Protocol
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
-from .api import ReadOnlyRommApi, RommApiClient, RommApiError
-from .api.connection import verify_connection
-from .config import ConnectionConfig
+from ..api import ReadOnlyRommApi, RommApiClient, RommApiError
+from ..api.connection import verify_connection
+from ..config import ConnectionConfig
 
 
 class ManagedReadOnlyRommApi(ReadOnlyRommApi, Protocol):
@@ -77,8 +77,8 @@ class ConnectionCheck(QObject):
         return self._thread is not None and self._thread.isRunning()
 
     def start(self, config: ConnectionConfig, token: str) -> None:
-        if self.is_running:
-            raise RuntimeError("A connection check is already running")
+        if self._thread is not None:
+            raise RuntimeError("A connection check is already active")
 
         thread = QThread(self)
         worker = _ConnectionWorker(self._client_factory, config, token)

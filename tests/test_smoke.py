@@ -67,7 +67,7 @@ def wait_for_connection(window: MainWindow) -> None:
     for _ in range(200):
         QApplication.processEvents()
         if (
-            not window._connection_check.is_running
+            not window.connection_session.is_running
             and window.source_status.text() != "CONNECTING"
         ):
             QApplication.processEvents()
@@ -87,23 +87,30 @@ class MainWindowSmokeTest(unittest.TestCase):
         self.addCleanup(window.close)
         window.show()
         self.app.processEvents()
+        library = window.library_view
 
-        self.assertTrue(window.library_empty_state.isVisible())
-        self.assertFalse(window.library_scroll.isVisible())
-        self.assertEqual(window.library_empty_title.text(), "No games")
+        self.assertTrue(library.empty_state.isVisible())
+        self.assertFalse(library.scroll.isVisible())
+        self.assertEqual(library.empty_title.text(), "No games")
+        self.assertIsNotNone(window.findChild(QWidget, "sidebar"))
         self.assertEqual(window.platform_summary.text(), "")
         self.assertIsNone(window.findChild(QWidget, "details"))
 
         items = [
-            LibraryItem(identifier=str(index), title=f"Game {index}", platform="NES")
+            LibraryItem(
+                identifier=str(index),
+                title=f"Game {index}",
+                platform="NES" if index % 2 == 0 else "SNES",
+            )
             for index in range(25)
         ]
         window.set_library_items(items)
         self.app.processEvents()
 
-        self.assertFalse(window.library_empty_state.isVisible())
-        self.assertTrue(window.library_scroll.isVisible())
-        self.assertEqual(len(window.library_grid.findChildren(LibraryCard)), len(items))
+        self.assertFalse(library.empty_state.isVisible())
+        self.assertTrue(library.scroll.isVisible())
+        self.assertEqual(len(library.grid.findChildren(LibraryCard)), len(items))
+        self.assertEqual(window.platform_summary.text(), "NES\nSNES")
 
     def test_not_connected_opens_client_token_popup_and_connects(self):
         store, settings, secrets = make_connection_store()
@@ -121,38 +128,39 @@ class MainWindowSmokeTest(unittest.TestCase):
             client_factory=client_factory,
         )
         self.addCleanup(window.close)
-        self.addCleanup(window.connection_popup.close)
+        panel = window.connection_panel
+        self.addCleanup(panel.close)
         window.show()
 
         window.source_status.click()
         self.app.processEvents()
 
-        self.assertTrue(window.connection_popup.windowFlags() & Qt.WindowType.Popup)
-        self.assertEqual(window.server_url_input.text(), "")
-        self.assertEqual(window.client_token_input.text(), "")
-        self.assertEqual(window.client_token_input.maxLength(), 68)
+        self.assertTrue(panel.windowFlags() & Qt.WindowType.Popup)
+        self.assertEqual(panel.server_url_input.text(), "")
+        self.assertEqual(panel.client_token_input.text(), "")
+        self.assertEqual(panel.client_token_input.maxLength(), 68)
         self.assertEqual(
-            window.client_token_input.echoMode(), QLineEdit.EchoMode.Password
+            panel.client_token_input.echoMode(), QLineEdit.EchoMode.Password
         )
-        self.assertFalse(window.connect_button.isEnabled())
+        self.assertFalse(panel.connect_button.isEnabled())
 
-        window.connection_popup.close()
+        panel.close()
         self.app.processEvents()
-        window.connection_popup.setWindowFlags(Qt.WindowType.Window)
-        window.connection_popup.show()
-        window.server_url_input.setFocus()
+        panel.setWindowFlags(Qt.WindowType.Window)
+        panel.show()
+        panel.server_url_input.setFocus()
         self.app.processEvents()
 
-        QTest.keyClick(window.server_url_input, Qt.Key.Key_Tab)
+        QTest.keyClick(panel.server_url_input, Qt.Key.Key_Tab)
         self.app.processEvents()
-        self.assertTrue(window.client_token_input.hasFocus())
+        self.assertTrue(panel.client_token_input.hasFocus())
 
         token = "rmm_" + ("a" * 64)
-        window.server_url_input.setText("https://romm.example.test/")
-        window.client_token_input.setText(token)
-        self.assertTrue(window.connect_button.isEnabled())
+        panel.server_url_input.setText("https://romm.example.test/")
+        panel.client_token_input.setText(token)
+        self.assertTrue(panel.connect_button.isEnabled())
 
-        window.connect_button.click()
+        panel.connect_button.click()
         wait_for_connection(window)
 
         self.assertEqual(
@@ -162,27 +170,28 @@ class MainWindowSmokeTest(unittest.TestCase):
         self.assertTrue(clients[0].closed)
         self.assertEqual(secrets.token, token)
         self.assertNotIn("token", " ".join(settings.values).lower())
-        self.assertEqual(window.client_token_input.text(), "")
+        self.assertEqual(panel.client_token_input.text(), "")
         self.assertEqual(window.source_status.text(), "CONNECTED")
-        self.assertEqual(window.statusBar().currentMessage(), "Connected")
-        self.assertIs(
-            window.connection_stack.currentWidget(), window.connected_view
-        )
-        self.assertEqual(window.connection_status_label.text(), "CONNECTED")
         self.assertEqual(
-            window.connected_server_label.text(), "https://romm.example.test"
+            window.connection_session.active_connection,
+            store.load_config(),
+        )
+        self.assertEqual(window.statusBar().currentMessage(), "Connected")
+        self.assertIs(panel.stack.currentWidget(), panel.connected_view)
+        self.assertEqual(panel.connection_status_label.text(), "CONNECTED")
+        self.assertEqual(
+            panel.connected_server_label.text(), "https://romm.example.test"
         )
 
-        window.connection_popup.show()
+        panel.show()
         self.app.processEvents()
-        self.assertTrue(window.disconnect_button.isVisible())
-        window.disconnect_button.click()
+        self.assertTrue(panel.disconnect_button.isVisible())
+        panel.disconnect_button.click()
 
         self.assertEqual(window.source_status.text(), "NOT CONNECTED")
+        self.assertIsNone(window.connection_session.active_connection)
         self.assertEqual(window.statusBar().currentMessage(), "Disconnected")
-        self.assertIs(
-            window.connection_stack.currentWidget(), window.connection_form
-        )
+        self.assertIs(panel.stack.currentWidget(), panel.connection_form)
         self.assertEqual(store.load_config().server_url, "https://romm.example.test")
         self.assertEqual(secrets.token, token)
 
@@ -198,10 +207,11 @@ class MainWindowSmokeTest(unittest.TestCase):
             client_factory=lambda config, token: client,
         )
         self.addCleanup(window.close)
+        panel = window.connection_panel
 
-        window.server_url_input.setText("https://new.example.test")
-        window.client_token_input.setText("rmm_" + ("a" * 64))
-        window.connect_button.click()
+        panel.server_url_input.setText("https://new.example.test")
+        panel.client_token_input.setText("rmm_" + ("a" * 64))
+        panel.connect_button.click()
         wait_for_connection(window)
 
         self.assertEqual(
@@ -237,35 +247,37 @@ class MainWindowSmokeTest(unittest.TestCase):
         self.assertEqual(window.source_status.text(), "CONNECTED")
         self.assertEqual(secrets.set_calls, 0)
         self.assertIs(
-            window.connection_stack.currentWidget(), window.connected_view
+            window.connection_panel.stack.currentWidget(),
+            window.connection_panel.connected_view,
         )
 
     def test_plain_http_requires_checkbox_approval(self):
         store, _, _ = make_connection_store()
         window = MainWindow(connection_store=store)
         self.addCleanup(window.close)
-        self.addCleanup(window.connection_popup.close)
+        panel = window.connection_panel
+        self.addCleanup(panel.close)
         window.show()
-        window.connection_popup.setWindowFlags(Qt.WindowType.Window)
-        window.connection_popup.show()
+        panel.setWindowFlags(Qt.WindowType.Window)
+        panel.show()
         self.app.processEvents()
 
-        self.assertTrue(window.allow_insecure_http_input.isEnabled())
+        self.assertTrue(panel.allow_insecure_http_input.isEnabled())
         label_position = QPoint(
-            window.allow_insecure_http_input.width() - 8,
-            window.allow_insecure_http_input.height() // 2,
+            panel.allow_insecure_http_input.width() - 8,
+            panel.allow_insecure_http_input.height() // 2,
         )
         QTest.mouseClick(
-            window.allow_insecure_http_input,
+            panel.allow_insecure_http_input,
             Qt.MouseButton.LeftButton,
             pos=label_position,
         )
-        self.assertTrue(window.allow_insecure_http_input.isChecked())
+        self.assertTrue(panel.allow_insecure_http_input.isChecked())
 
-        window.server_url_input.setText("http://romm.example.test")
-        window.client_token_input.setText("rmm_" + ("a" * 64))
+        panel.server_url_input.setText("http://romm.example.test")
+        panel.client_token_input.setText("rmm_" + ("a" * 64))
 
-        self.assertTrue(window.connect_button.isEnabled())
+        self.assertTrue(panel.connect_button.isEnabled())
 
 
 if __name__ == "__main__":
