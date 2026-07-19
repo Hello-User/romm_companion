@@ -94,11 +94,6 @@ class ConnectionCheck(QObject):
         self._worker = worker
         thread.start()
 
-    def wait(self, milliseconds: int) -> bool:
-        if self._thread is None:
-            return True
-        return self._thread.wait(milliseconds)
-
     @Slot()
     def _thread_finished(self) -> None:
         self._thread = None

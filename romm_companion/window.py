@@ -70,6 +70,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         self.setStatusBar(QStatusBar())
 
+        self._close_after_check = False
         self._connect_connection_signals()
         self.connection_session.initialize()
 
@@ -137,6 +138,7 @@ class MainWindow(QMainWindow):
         self.connection_session.finished.connect(
             lambda: self.connection_panel.set_busy(False)
         )
+        self.connection_session.finished.connect(self._finish_pending_close)
         self.connection_session.message_changed.connect(
             self.statusBar().showMessage
         )
@@ -166,12 +168,15 @@ class MainWindow(QMainWindow):
         self.connection_panel.show_disconnected()
         self.source_status.setText("NOT CONNECTED")
 
+    def _finish_pending_close(self) -> None:
+        if self._close_after_check:
+            self._close_after_check = False
+            self.close()
+
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
-        if (
-            self.connection_session.is_running
-            and not self.connection_session.shutdown(11_000)
-        ):
-            self.statusBar().showMessage("Connection check is still finishing")
+        if self.connection_session.is_running:
+            self._close_after_check = True
+            self.statusBar().showMessage("Closing after the connection check")
             event.ignore()
             return
         super().closeEvent(event)

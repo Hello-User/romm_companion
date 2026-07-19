@@ -93,9 +93,6 @@ class ConnectionSession(QObject):
         self.disconnected.emit()
         self.message_changed.emit("Disconnected")
 
-    def shutdown(self, milliseconds: int) -> bool:
-        return self._check.wait(milliseconds)
-
     def _connect_on_startup(self) -> None:
         config = self._startup_connection
         self._startup_connection = None

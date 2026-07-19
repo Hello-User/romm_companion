@@ -1,4 +1,5 @@
 import os
+import threading
 import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -250,6 +251,47 @@ class MainWindowSmokeTest(unittest.TestCase):
             window.connection_panel.stack.currentWidget(),
             window.connection_panel.connected_view,
         )
+
+    def test_close_during_check_is_deferred_until_it_finishes(self):
+        release = threading.Event()
+
+        class BlockingClient(FakeRommApiClient):
+            def get_json(self, endpoint, *, params=None):
+                release.wait(5)
+                return super().get_json(endpoint, params=params)
+
+        store, _, _ = make_connection_store()
+        window = MainWindow(
+            connection_store=store,
+            client_factory=lambda config, token: BlockingClient(),
+        )
+        self.addCleanup(window.close)
+        window.show()
+        panel = window.connection_panel
+
+        panel.server_url_input.setText("https://romm.example.test")
+        panel.client_token_input.setText("rmm_" + ("a" * 64))
+        panel.connect_button.click()
+        for _ in range(200):
+            if window.connection_session.is_running:
+                break
+            QTest.qWait(5)
+        self.assertTrue(window.connection_session.is_running)
+
+        window.close()
+        self.app.processEvents()
+
+        self.assertTrue(window.isVisible())
+        self.assertEqual(
+            window.statusBar().currentMessage(),
+            "Closing after the connection check",
+        )
+
+        release.set()
+        wait_for_connection(window)
+        self.app.processEvents()
+
+        self.assertFalse(window.isVisible())
 
     def test_plain_http_requires_checkbox_approval(self):
         store, _, _ = make_connection_store()
