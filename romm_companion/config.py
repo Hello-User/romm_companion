@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Protocol
 from urllib.parse import urlsplit, urlunsplit
 
@@ -10,9 +11,13 @@ from PySide6.QtCore import QSettings
 
 
 _SERVER_URL_KEY = "connection/server_url"
-_USERNAME_KEY = "connection/username"
 _KEYRING_SERVICE = "RomM Companion"
 _KEYRING_ACCOUNT = "active-romm-account"
+_CLIENT_TOKEN_PATTERN = re.compile(r"rmm_[0-9a-fA-F]{64}\Z")
+
+
+def is_valid_client_token(token: str) -> bool:
+    return _CLIENT_TOKEN_PATTERN.fullmatch(token.strip()) is not None
 
 
 class ConnectionStorageError(RuntimeError):
@@ -22,12 +27,10 @@ class ConnectionStorageError(RuntimeError):
 @dataclass(frozen=True)
 class ConnectionConfig:
     server_url: str
-    username: str
 
     @classmethod
-    def from_input(cls, server_url: str, username: str) -> ConnectionConfig:
+    def from_input(cls, server_url: str) -> ConnectionConfig:
         normalized_url = server_url.strip()
-        normalized_username = username.strip()
         if not normalized_url or any(character.isspace() for character in normalized_url):
             raise ValueError("Server URL is required")
 
@@ -42,20 +45,17 @@ class ConnectionConfig:
             parsed.port
         except ValueError as error:
             raise ValueError("Server URL contains an invalid port") from error
-        if not normalized_username:
-            raise ValueError("Username is required")
-
         path = parsed.path.rstrip("/")
         normalized_url = urlunsplit(
             (parsed.scheme.lower(), parsed.netloc, path, "", "")
         )
-        return cls(server_url=normalized_url, username=normalized_username)
+        return cls(server_url=normalized_url)
 
 
 class SecretStore(Protocol):
-    def get_password(self) -> str | None: ...
+    def get_token(self) -> str | None: ...
 
-    def set_password(self, password: str) -> None: ...
+    def set_token(self, token: str) -> None: ...
 
 
 class SettingsStore(Protocol):
@@ -68,10 +68,10 @@ class SettingsStore(Protocol):
     def status(self) -> QSettings.Status: ...
 
 
-class KeyringSecretStore:
-    """Store the active RomM password in the platform credential service."""
+class KeyringTokenStore:
+    """Store the active RomM Client API Token in the credential service."""
 
-    def get_password(self) -> str | None:
+    def get_token(self) -> str | None:
         try:
             import keyring
             from keyring.errors import KeyringError
@@ -79,11 +79,12 @@ class KeyringSecretStore:
             raise ConnectionStorageError("Credential storage is unavailable") from error
 
         try:
-            return keyring.get_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT)
+            token = keyring.get_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT)
         except KeyringError as error:
             raise ConnectionStorageError("Credential storage is unavailable") from error
+        return token if token is not None and _CLIENT_TOKEN_PATTERN.fullmatch(token) else None
 
-    def set_password(self, password: str) -> None:
+    def set_token(self, token: str) -> None:
         try:
             import keyring
             from keyring.errors import KeyringError
@@ -91,13 +92,13 @@ class KeyringSecretStore:
             raise ConnectionStorageError("Credential storage is unavailable") from error
 
         try:
-            keyring.set_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT, password)
+            keyring.set_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT, token)
         except KeyringError as error:
             raise ConnectionStorageError("Credential storage is unavailable") from error
 
 
 class ConnectionStore:
-    """Coordinate non-secret settings and the separately stored password."""
+    """Coordinate non-secret settings and the separately stored client token."""
 
     def __init__(self, settings: SettingsStore, secrets: SecretStore) -> None:
         self._settings = settings
@@ -105,28 +106,27 @@ class ConnectionStore:
 
     @classmethod
     def system_default(cls) -> ConnectionStore:
-        return cls(QSettings("RomM", "RomM Companion"), KeyringSecretStore())
+        return cls(QSettings("RomM", "RomM Companion"), KeyringTokenStore())
 
     def load_config(self) -> ConnectionConfig | None:
         server_url = str(self._settings.value(_SERVER_URL_KEY, "") or "")
-        username = str(self._settings.value(_USERNAME_KEY, "") or "")
-        if not server_url and not username:
+        if not server_url:
             return None
         try:
-            return ConnectionConfig.from_input(server_url, username)
+            return ConnectionConfig.from_input(server_url)
         except ValueError as error:
             raise ConnectionStorageError("Stored connection settings are invalid") from error
 
-    def get_password(self) -> str | None:
-        return self._secrets.get_password()
+    def get_token(self) -> str | None:
+        return self._secrets.get_token()
 
-    def save(self, config: ConnectionConfig, password: str) -> None:
-        if not password:
-            raise ValueError("Password is required")
+    def save(self, config: ConnectionConfig, token: str) -> None:
+        normalized_token = token.strip()
+        if not is_valid_client_token(normalized_token):
+            raise ValueError("Client API Token has an invalid format")
 
-        self._secrets.set_password(password)
+        self._secrets.set_token(normalized_token)
         self._settings.setValue(_SERVER_URL_KEY, config.server_url)
-        self._settings.setValue(_USERNAME_KEY, config.username)
         self._settings.sync()
         if self._settings.status() != QSettings.Status.NoError:
             raise ConnectionStorageError("Connection settings could not be saved")

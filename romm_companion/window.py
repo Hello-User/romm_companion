@@ -23,7 +23,12 @@ from PySide6.QtWidgets import (
 import random
 
 from .models import LibraryItem
-from .config import ConnectionConfig, ConnectionStorageError, ConnectionStore
+from .config import (
+    ConnectionConfig,
+    ConnectionStorageError,
+    ConnectionStore,
+    is_valid_client_token,
+)
 from .style import STYLE
 from .widgets import LibraryGrid
 
@@ -99,31 +104,23 @@ class MainWindow(QMainWindow):
         self.server_url_input.setObjectName("serverUrlInput")
         form.addRow("Server URL", self.server_url_input)
 
-        self.username_input = QLineEdit()
-        self.username_input.setObjectName("usernameInput")
-        form.addRow("Username", self.username_input)
+        self.client_token_input = QLineEdit()
+        self.client_token_input.setObjectName("clientTokenInput")
+        self.client_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.client_token_input.setMaxLength(68)
+        form.addRow("Client API Token", self.client_token_input)
 
-        self.password_input = QLineEdit()
-        self.password_input.setObjectName("passwordInput")
-        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        form.addRow("Password", self.password_input)
+        self.save_connection_button = QPushButton("Save")
+        self.save_connection_button.setObjectName("primary")
+        self.save_connection_button.setEnabled(False)
+        self.save_connection_button.clicked.connect(self.save_connection)
+        form.addRow(self.save_connection_button)
 
-        self.sign_in_button = QPushButton("Save")
-        self.sign_in_button.setObjectName("primary")
-        self.sign_in_button.setEnabled(False)
-        self.sign_in_button.clicked.connect(self.save_connection)
-        form.addRow(self.sign_in_button)
+        self.server_url_input.textChanged.connect(self.update_save_enabled)
+        self.client_token_input.textChanged.connect(self.update_save_enabled)
 
-        for field in (
-            self.server_url_input,
-            self.username_input,
-            self.password_input,
-        ):
-            field.textChanged.connect(self.update_save_enabled)
-
-        QWidget.setTabOrder(self.server_url_input, self.username_input)
-        QWidget.setTabOrder(self.username_input, self.password_input)
-        QWidget.setTabOrder(self.password_input, self.sign_in_button)
+        QWidget.setTabOrder(self.server_url_input, self.client_token_input)
+        QWidget.setTabOrder(self.client_token_input, self.save_connection_button)
         return popup
 
     def show_connection_popup(self) -> None:
@@ -144,24 +141,21 @@ class MainWindow(QMainWindow):
             return
         if config is not None:
             self.server_url_input.setText(config.server_url)
-            self.username_input.setText(config.username)
 
     def update_save_enabled(self) -> None:
         try:
-            ConnectionConfig.from_input(
-                self.server_url_input.text(), self.username_input.text()
-            )
+            ConnectionConfig.from_input(self.server_url_input.text())
         except ValueError:
-            self.sign_in_button.setEnabled(False)
+            self.save_connection_button.setEnabled(False)
             return
-        self.sign_in_button.setEnabled(bool(self.password_input.text()))
+        self.save_connection_button.setEnabled(
+            is_valid_client_token(self.client_token_input.text())
+        )
 
     def save_connection(self) -> None:
         try:
-            config = ConnectionConfig.from_input(
-                self.server_url_input.text(), self.username_input.text()
-            )
-            self._connection_store.save(config, self.password_input.text())
+            config = ConnectionConfig.from_input(self.server_url_input.text())
+            self._connection_store.save(config, self.client_token_input.text())
         except ValueError:
             self.update_save_enabled()
             return
@@ -170,8 +164,7 @@ class MainWindow(QMainWindow):
             return
 
         self.server_url_input.setText(config.server_url)
-        self.username_input.setText(config.username)
-        self.password_input.clear()
+        self.client_token_input.clear()
         self.connection_popup.close()
         self.statusBar().showMessage("Connection settings saved")
 

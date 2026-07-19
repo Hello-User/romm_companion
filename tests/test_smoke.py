@@ -30,13 +30,13 @@ class MemorySettings:
 
 class MemorySecretStore:
     def __init__(self) -> None:
-        self.password: str | None = None
+        self.token: str | None = None
 
-    def get_password(self) -> str | None:
-        return self.password
+    def get_token(self) -> str | None:
+        return self.token
 
-    def set_password(self, password: str) -> None:
-        self.password = password
+    def set_token(self, token: str) -> None:
+        self.token = token
 
 
 def make_connection_store() -> tuple[ConnectionStore, MemorySettings, MemorySecretStore]:
@@ -74,7 +74,7 @@ class MainWindowSmokeTest(unittest.TestCase):
         self.assertTrue(window.library_scroll.isVisible())
         self.assertEqual(len(window.library_grid.findChildren(LibraryCard)), len(items))
 
-    def test_not_connected_opens_keyboard_navigable_sign_in_popup(self):
+    def test_not_connected_opens_client_token_popup(self):
         store, settings, secrets = make_connection_store()
         window = MainWindow(connection_store=store)
         self.addCleanup(window.close)
@@ -86,10 +86,12 @@ class MainWindowSmokeTest(unittest.TestCase):
 
         self.assertTrue(window.connection_popup.windowFlags() & Qt.WindowType.Popup)
         self.assertEqual(window.server_url_input.text(), "")
-        self.assertEqual(window.username_input.text(), "")
-        self.assertEqual(window.password_input.text(), "")
-        self.assertEqual(window.password_input.echoMode(), QLineEdit.EchoMode.Password)
-        self.assertFalse(window.sign_in_button.isEnabled())
+        self.assertEqual(window.client_token_input.text(), "")
+        self.assertEqual(window.client_token_input.maxLength(), 68)
+        self.assertEqual(
+            window.client_token_input.echoMode(), QLineEdit.EchoMode.Password
+        )
+        self.assertFalse(window.save_connection_button.isEnabled())
 
         window.connection_popup.setWindowFlags(Qt.WindowType.Window)
         window.connection_popup.show()
@@ -97,24 +99,21 @@ class MainWindowSmokeTest(unittest.TestCase):
         self.app.processEvents()
 
         QTest.keyClick(window.server_url_input, Qt.Key.Key_Tab)
-        self.assertTrue(window.username_input.hasFocus())
-        QTest.keyClick(window.username_input, Qt.Key.Key_Tab)
-        self.assertTrue(window.password_input.hasFocus())
+        self.assertTrue(window.client_token_input.hasFocus())
 
+        token = "rmm_" + ("a" * 64)
         window.server_url_input.setText("https://romm.example.test/")
-        window.username_input.setText("player")
-        window.password_input.setText("test password")
-        self.assertTrue(window.sign_in_button.isEnabled())
+        window.client_token_input.setText(token)
+        self.assertTrue(window.save_connection_button.isEnabled())
 
-        window.sign_in_button.click()
+        window.save_connection_button.click()
 
         self.assertEqual(
             store.load_config().server_url, "https://romm.example.test"
         )
-        self.assertEqual(store.load_config().username, "player")
-        self.assertEqual(secrets.password, "test password")
-        self.assertNotIn("password", " ".join(settings.values).lower())
-        self.assertEqual(window.password_input.text(), "")
+        self.assertEqual(secrets.token, token)
+        self.assertNotIn("token", " ".join(settings.values).lower())
+        self.assertEqual(window.client_token_input.text(), "")
         self.assertEqual(window.source_status.text(), "NOT CONNECTED")
         self.assertEqual(window.statusBar().currentMessage(), "Connection settings saved")
 
