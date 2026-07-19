@@ -70,6 +70,27 @@ QLineEdit {
     padding: 7px 9px;
 }
 QLineEdit:focus { border-color: #8B74E8; }
+QCheckBox#insecureHttpInput {
+    background: transparent;
+    spacing: 8px;
+    padding: 4px 0;
+}
+QCheckBox#insecureHttpInput::indicator {
+    width: 15px;
+    height: 15px;
+    background: #0D1117;
+    border: 1px solid #7A6BB4;
+    border-radius: 3px;
+}
+QCheckBox#insecureHttpInput::indicator:checked {
+    background: #8B74E8;
+    border-color: #A18FFF;
+}
+QLabel#connectionState {
+    color: #A18FFF;
+    font-weight: 700;
+}
+QLabel#connectedServer { color: #9E8CD6; }
 QLabel#artworkNote { color: #9E8CD6; font-size: 11px; font-weight: 700; }
 QPushButton {
     background: #1C2330;

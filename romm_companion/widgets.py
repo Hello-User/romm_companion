@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Callable, Iterable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QGridLayout,
     QLabel,
@@ -15,6 +16,13 @@ from PySide6.QtWidgets import (
 )
 
 from .models import LibraryItem
+
+
+class FullRowCheckBox(QCheckBox):
+    """A checkbox whose complete row, including its label, toggles it."""
+
+    def hitButton(self, position: QPoint) -> bool:  # noqa: N802
+        return self.rect().contains(position)
 
 
 def set_artwork(label: QLabel, item: LibraryItem | None) -> None:

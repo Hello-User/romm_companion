@@ -54,6 +54,22 @@ class ConnectionConfigTest(unittest.TestCase):
             self.assertNotIn("token", " ".join(settings.allKeys()).lower())
             self.assertNotIn(token, settings_path.read_text())
 
+    def test_persists_explicit_insecure_http_approval(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QSettings(
+                str(Path(directory) / "settings.ini"),
+                QSettings.Format.IniFormat,
+            )
+            store = ConnectionStore(settings, MemorySecretStore())
+            config = ConnectionConfig.from_input(
+                "http://romm.example.test",
+                allow_insecure_http=True,
+            )
+
+            store.save(config, "rmm_" + ("a" * 64))
+
+            self.assertEqual(store.load_config(), config)
+
     def test_rejects_non_client_token_secrets(self):
         settings = QSettings()
         store = ConnectionStore(settings, MemorySecretStore())
