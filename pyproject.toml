@@ -1,0 +1,15 @@
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "N", "SIM", "UP", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+# The smoke test must set QT_QPA_PLATFORM before any Qt import.
+"tests/test_smoke.py" = ["E402"]
+
+[tool.mypy]
+files = ["romm_companion"]
+python_version = "3.12"
+strict = true
