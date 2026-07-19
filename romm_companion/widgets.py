@@ -88,6 +88,7 @@ class LibraryGrid(QWidget):
         super().__init__()
         self._items: tuple[LibraryItem, ...] = ()
         self._selected_callback = selected_callback
+        self._columns = 0
         self._layout = QGridLayout(self)
         self._layout.setContentsMargins(0, 0, 6, 0)
         self._layout.setHorizontalSpacing(12)
@@ -99,8 +100,11 @@ class LibraryGrid(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        if self._items:
+        if self._items and self._fitting_columns() != self._columns:
             self._rebuild()
+
+    def _fitting_columns(self) -> int:
+        return max(1, self.width() // 220)
 
     def _rebuild(self) -> None:
         while self._layout.count():
@@ -110,10 +114,7 @@ class LibraryGrid(QWidget):
                 widget.setParent(None)
                 widget.deleteLater()
 
-        if not self._items:
-            return
-
-        columns = max(1, self.width() // 220)
+        columns = self._fitting_columns() if self._items else 0
         for index, item in enumerate(self._items):
             self._layout.addWidget(
                 LibraryCard(item, self._selected_callback),
@@ -122,3 +123,6 @@ class LibraryGrid(QWidget):
             )
         for column in range(columns):
             self._layout.setColumnStretch(column, 1)
+        for column in range(columns, self._columns):
+            self._layout.setColumnStretch(column, 0)
+        self._columns = columns

@@ -10,7 +10,7 @@ from PySide6.QtTest import QTest
 
 from romm_companion import ConnectionStore, LibraryItem, MainWindow
 from romm_companion.api import RommAuthenticationError
-from romm_companion.widgets import LibraryCard
+from romm_companion.widgets import LibraryCard, LibraryGrid
 
 
 class MemorySettings:
@@ -112,6 +112,32 @@ class MainWindowSmokeTest(unittest.TestCase):
         self.assertTrue(library.scroll.isVisible())
         self.assertEqual(len(library.grid.findChildren(LibraryCard)), len(items))
         self.assertEqual(window.platform_summary.text(), "NES\nSNES")
+
+    def test_grid_rebuilds_only_when_the_column_count_changes(self):
+        grid = LibraryGrid()
+        self.addCleanup(grid.close)
+        grid.show()
+        grid.resize(700, 600)
+        self.app.processEvents()
+
+        items = [
+            LibraryItem(identifier=str(index), title=f"Game {index}")
+            for index in range(6)
+        ]
+        grid.set_items(items)
+        self.app.processEvents()
+        original_cards = grid.findChildren(LibraryCard)
+        self.assertEqual(len(original_cards), len(items))
+
+        grid.resize(710, 600)
+        self.app.processEvents()
+        self.assertEqual(grid.findChildren(LibraryCard), original_cards)
+
+        grid.resize(460, 600)
+        self.app.processEvents()
+        rebuilt_cards = grid.findChildren(LibraryCard)
+        self.assertEqual(len(rebuilt_cards), len(items))
+        self.assertNotEqual(rebuilt_cards, original_cards)
 
     def test_not_connected_opens_client_token_popup_and_connects(self):
         store, settings, secrets = make_connection_store()
