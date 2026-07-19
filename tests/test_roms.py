@@ -1,7 +1,11 @@
 import unittest
 
 from romm_companion.api import RommResponseError
-from romm_companion.api.roms import fetch_library_items, iter_library_item_pages
+from romm_companion.api.roms import (
+    fetch_library_items,
+    iter_library_item_pages,
+    iter_library_pages,
+)
 
 
 def make_rom(**overrides: object) -> dict[str, object]:
@@ -47,6 +51,72 @@ class FetchLibraryItemsTest(unittest.TestCase):
         self.assertEqual(item.description, "A time-travelling RPG.")
         self.assertEqual(client.requests[0][0], "roms")
         self.assertEqual(client.requests[0][1]["offset"], 0)
+
+    def test_maps_cover_paths_separately_from_library_items(self):
+        client = FakeClient(
+            [
+                {
+                    "items": [
+                        make_rom(
+                            path_cover_small=(
+                                "/assets/romm/resources/roms/3/7/cover/small.png"
+                            ),
+                            path_cover_large=(
+                                "/assets/romm/resources/roms/3/7/cover/big.png"
+                            ),
+                            url_cover="https://images.example.test/cover.png",
+                        )
+                    ],
+                    "total": 1,
+                }
+            ]
+        )
+
+        page = next(iter_library_pages(client))
+
+        self.assertEqual(len(page.items), 1)
+        self.assertIsNone(page.items[0].cover)
+        self.assertEqual(len(page.artwork_requests), 1)
+        self.assertEqual(page.artwork_requests[0].identifier, "7")
+        self.assertEqual(
+            page.artwork_requests[0].asset_path,
+            "/assets/romm/resources/roms/3/7/cover/small.png",
+        )
+
+    def test_cover_path_falls_back_to_large_and_ignores_external_url(self):
+        client = FakeClient(
+            [
+                {
+                    "items": [
+                        make_rom(
+                            id=1,
+                            path_cover_small="",
+                            path_cover_large=(
+                                "/assets/romm/resources/roms/3/1/cover/big.png"
+                            ),
+                        ),
+                        make_rom(
+                            id=2,
+                            path_cover_small=None,
+                            path_cover_large=None,
+                            url_cover="https://images.example.test/cover.png",
+                        ),
+                    ],
+                    "total": 2,
+                }
+            ]
+        )
+
+        page = next(iter_library_pages(client))
+
+        self.assertEqual(
+            [request.identifier for request in page.artwork_requests],
+            ["1"],
+        )
+        self.assertEqual(
+            page.artwork_requests[0].asset_path,
+            "/assets/romm/resources/roms/3/1/cover/big.png",
+        )
 
     def test_falls_back_to_file_names_and_skips_unusable_records(self):
         client = FakeClient(

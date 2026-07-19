@@ -1,6 +1,6 @@
 """Public boundary for authenticated, read-only RomM API access."""
 
-from .client import JsonValue, ReadOnlyRommApi, RommApiClient
+from .client import JsonValue, ReadOnlyRommApi, RommApiClient, RommImageApi
 from .errors import (
     InsecureConnectionError,
     RommApiError,
@@ -17,6 +17,7 @@ __all__ = [
     "ReadOnlyRommApi",
     "RommApiClient",
     "RommApiError",
+    "RommImageApi",
     "RommAuthenticationError",
     "RommNetworkError",
     "RommPermissionError",

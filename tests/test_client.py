@@ -43,6 +43,96 @@ class RommApiClientTest(unittest.TestCase):
         self.assertEqual(requests[0].headers["authorization"], f"Bearer {TOKEN}")
         self.assertEqual(requests[0].headers["accept"], "application/json")
 
+    def test_get_image_bytes_builds_an_authenticated_resource_request(self):
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(
+                200,
+                headers={"content-type": "image/png; charset=binary"},
+                content=b"image data",
+            )
+
+        config = ConnectionConfig.from_input("https://romm.example.test/root")
+        with RommApiClient(
+            config, TOKEN, transport=httpx.MockTransport(respond)
+        ) as client:
+            content = client.get_image_bytes(
+                "/assets/romm/resources/roms/3/7/cover/small.png?ts=updated"
+            )
+
+        self.assertEqual(content, b"image data")
+        self.assertEqual(
+            str(requests[0].url),
+            "https://romm.example.test/assets/romm/resources/roms/3/7/cover/"
+            "small.png?ts=updated",
+        )
+        self.assertEqual(requests[0].headers["authorization"], f"Bearer {TOKEN}")
+        self.assertEqual(requests[0].headers["accept"], "image/*")
+
+    def test_get_image_bytes_rejects_untrusted_resource_paths(self):
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "image/png"},
+                content=b"image data",
+            )
+        )
+        with RommApiClient(
+            ConnectionConfig.from_input("https://romm.example.test"),
+            TOKEN,
+            transport=transport,
+        ) as client:
+            paths = (
+                "https://other.example.test/cover.png",
+                "//other.example.test/cover.png",
+                "/api/roms/7/cover",
+                "/assets/romm/resources/../secrets",
+                "/assets/romm/resources/%2e%2e/secrets",
+                "/assets/romm/resources/cover.png#fragment",
+            )
+            for path in paths:
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    client.get_image_bytes(path)
+
+    def test_get_image_bytes_rejects_non_images_and_oversized_content(self):
+        responses = (
+            httpx.Response(
+                200,
+                headers={"content-type": "text/html"},
+                content=b"not an image",
+            ),
+            httpx.Response(
+                200,
+                headers={"content-type": "image/png", "content-length": "5"},
+                content=b"12345",
+            ),
+            httpx.Response(
+                200,
+                headers={"content-type": "image/png"},
+                stream=httpx.ByteStream(b"12345"),
+            ),
+        )
+
+        for response in responses:
+            with self.subTest(headers=response.headers):
+                transport = httpx.MockTransport(
+                    lambda request, response=response: response
+                )
+                with (
+                    RommApiClient(
+                        ConnectionConfig.from_input("https://romm.example.test"),
+                        TOKEN,
+                        transport=transport,
+                    ) as client,
+                    self.assertRaises(RommResponseError),
+                ):
+                    client.get_image_bytes(
+                        "/assets/romm/resources/cover.png",
+                        max_bytes=4,
+                    )
+
     def test_maps_authentication_and_permission_failures(self):
         cases = (
             (401, RommAuthenticationError),

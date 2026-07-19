@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from ..models import LibraryItem
@@ -10,6 +11,22 @@ from .client import JsonValue, ReadOnlyRommApi
 from .errors import RommResponseError
 
 _PAGE_SIZE = 100
+
+
+@dataclass(frozen=True)
+class ArtworkRequest:
+    """A same-server cover resource associated with one library item."""
+
+    identifier: str
+    asset_path: str
+
+
+@dataclass(frozen=True)
+class LibraryPage:
+    """One mapped ROM page and its separately retained artwork requests."""
+
+    items: tuple[LibraryItem, ...]
+    artwork_requests: tuple[ArtworkRequest, ...]
 
 
 def fetch_library_items(client: ReadOnlyRommApi) -> list[LibraryItem]:
@@ -21,6 +38,12 @@ def iter_library_item_pages(
     client: ReadOnlyRommApi,
 ) -> Iterator[tuple[LibraryItem, ...]]:
     """Yield each mapped ROM page before requesting the next one."""
+    for page in iter_library_pages(client):
+        yield page.items
+
+
+def iter_library_pages(client: ReadOnlyRommApi) -> Iterator[LibraryPage]:
+    """Yield mapped item pages with their same-server cover references."""
     offset = 0
     while True:
         payload = client.get_json(
@@ -32,12 +55,22 @@ def iter_library_item_pages(
         if not isinstance(page, list):
             raise RommResponseError("RomM returned an unexpected response")
         mapped_page: list[LibraryItem] = []
+        artwork_requests: list[ArtworkRequest] = []
         for entry in page:
             item = _map_rom(entry)
             if item is not None:
                 mapped_page.append(item)
+                if isinstance(entry, dict):
+                    cover_path = _first_text(
+                        entry,
+                        ("path_cover_small", "path_cover_large"),
+                    )
+                    if cover_path:
+                        artwork_requests.append(
+                            ArtworkRequest(item.identifier, cover_path)
+                        )
         if mapped_page:
-            yield tuple(mapped_page)
+            yield LibraryPage(tuple(mapped_page), tuple(artwork_requests))
         offset += len(page)
         total = payload.get("total")
         if not page or not isinstance(total, int) or offset >= total:
