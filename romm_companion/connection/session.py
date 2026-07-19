@@ -85,7 +85,8 @@ class ConnectionSession(QObject):
             return
         self._start(config, normalized_token, persist_on_success=True)
 
-    def disconnect(self) -> None:
+    @Slot()
+    def disconnect_requested(self) -> None:
         if self.is_running:
             return
         self._active_connection = None

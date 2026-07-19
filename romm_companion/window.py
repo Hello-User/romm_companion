@@ -126,7 +126,7 @@ class MainWindow(QMainWindow):
             self.connection_session.connect_requested
         )
         self.connection_panel.disconnect_requested.connect(
-            self.connection_session.disconnect
+            self.connection_session.disconnect_requested
         )
         self.connection_session.configuration_loaded.connect(
             self.connection_panel.load_config
