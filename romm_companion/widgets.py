@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -29,7 +30,7 @@ def set_artwork(label: QLabel, item: LibraryItem | None) -> None:
     """Display supplied artwork or an explicit no-artwork state."""
     label.clear()
     if item is not None and item.cover is not None and not item.cover.isNull():
-        label.setPixmap(item.cover)
+        label.setPixmap(QPixmap.fromImage(item.cover))
         return
     label.setText("NO ARTWORK")
 

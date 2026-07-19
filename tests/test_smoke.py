@@ -5,10 +5,11 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, QSettings, Qt
-from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
+from PySide6.QtGui import QImage
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QWidget
 from PySide6.QtTest import QTest
 
-from romm_companion import ConnectionStore, LibraryItem, MainWindow
+from romm_companion import ConnectionStore, LibraryItem, MainWindow, set_artwork
 from romm_companion.api import RommAuthenticationError
 from romm_companion.widgets import LibraryCard, LibraryGrid
 
@@ -112,6 +113,18 @@ class MainWindowSmokeTest(unittest.TestCase):
         self.assertTrue(library.scroll.isVisible())
         self.assertEqual(len(library.grid.findChildren(LibraryCard)), len(items))
         self.assertEqual(window.platform_summary.text(), "NES\nSNES")
+
+    def test_artwork_shows_supplied_images_and_explicit_absence(self):
+        label = QLabel()
+        image = QImage(4, 4, QImage.Format.Format_RGB32)
+        image.fill(Qt.GlobalColor.darkMagenta)
+
+        set_artwork(label, LibraryItem(identifier="1", title="Game", cover=image))
+        self.assertFalse(label.pixmap().isNull())
+        self.assertEqual(label.text(), "")
+
+        set_artwork(label, LibraryItem(identifier="2", title="Game"))
+        self.assertEqual(label.text(), "NO ARTWORK")
 
     def test_grid_rebuilds_only_when_the_column_count_changes(self):
         grid = LibraryGrid()

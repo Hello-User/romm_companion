@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QImage
 
 
 @dataclass(frozen=True)
@@ -17,4 +17,4 @@ class LibraryItem:
     release_year: str = ""
     genre: str = ""
     description: str = ""
-    cover: QPixmap | None = None
+    cover: QImage | None = None
