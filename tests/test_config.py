@@ -24,6 +24,13 @@ class ConnectionConfigTest(unittest.TestCase):
 
         self.assertEqual(config.server_url, "https://romm.example.test/library")
 
+    def test_insecure_http_approval_applies_only_to_http_urls(self):
+        config = ConnectionConfig.from_input(
+            "https://romm.example.test", allow_insecure_http=True
+        )
+
+        self.assertFalse(config.allow_insecure_http)
+
     def test_rejects_unsafe_or_incomplete_values(self):
         invalid_values = (
             "",

@@ -35,12 +35,14 @@ class ConnectionConfig:
     def from_input(
         cls, server_url: str, *, allow_insecure_http: bool = False
     ) -> ConnectionConfig:
+        """Validate one server URL; insecure-HTTP approval applies only to HTTP URLs."""
         normalized_url = server_url.strip()
         if not normalized_url or any(character.isspace() for character in normalized_url):
             raise ValueError("Server URL is required")
 
         parsed = urlsplit(normalized_url)
-        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        scheme = parsed.scheme.lower()
+        if scheme not in {"http", "https"} or not parsed.hostname:
             raise ValueError("Server URL must be an absolute HTTP or HTTPS URL")
         if parsed.username is not None or parsed.password is not None:
             raise ValueError("Server URL must not contain credentials")
@@ -51,12 +53,10 @@ class ConnectionConfig:
         except ValueError as error:
             raise ValueError("Server URL contains an invalid port") from error
         path = parsed.path.rstrip("/")
-        normalized_url = urlunsplit(
-            (parsed.scheme.lower(), parsed.netloc, path, "", "")
-        )
+        normalized_url = urlunsplit((scheme, parsed.netloc, path, "", ""))
         return cls(
             server_url=normalized_url,
-            allow_insecure_http=allow_insecure_http,
+            allow_insecure_http=allow_insecure_http and scheme == "http",
         )
 
 

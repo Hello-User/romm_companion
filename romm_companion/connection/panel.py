@@ -147,15 +147,13 @@ class ConnectionPanel(QFrame):
         if self._busy:
             return
         try:
-            config = ConnectionConfig.from_input(self.server_url_input.text())
+            config = ConnectionConfig.from_input(
+                self.server_url_input.text(),
+                allow_insecure_http=self.allow_insecure_http_input.isChecked(),
+            )
         except ValueError:
             self._update_connect_enabled()
             return
-        if urlsplit(config.server_url).scheme == "http":
-            config = ConnectionConfig.from_input(
-                config.server_url,
-                allow_insecure_http=self.allow_insecure_http_input.isChecked(),
-            )
         self.connect_requested.emit(config, self.client_token_input.text().strip())
 
     def _update_connect_enabled(self) -> None:
