@@ -49,7 +49,7 @@ QLabel#section {
 QLabel#gameTitle { font-size: 14px; font-weight: 600; }
 QLabel#emptyTitle { font-size: 22px; font-weight: 700; }
 QLabel#brandMark { color: #8B74E8; }
-QLabel#statusPill {
+QPushButton#statusPill {
     color: #EBE7FA;
     background: #1C2330;
     border: 1px solid #7A6BB4;
@@ -58,6 +58,18 @@ QLabel#statusPill {
     font-size: 10px;
     font-weight: 700;
 }
+QPushButton#statusPill:hover { background: #6043C8; }
+QFrame#connectionPopup {
+    background: #161B22;
+    border: 1px solid #6043C8;
+}
+QLineEdit {
+    background: #0D1117;
+    border: 1px solid #5D5D5D;
+    border-radius: 6px;
+    padding: 7px 9px;
+}
+QLineEdit:focus { border-color: #8B74E8; }
 QLabel#artworkNote { color: #9E8CD6; font-size: 11px; font-weight: 700; }
 QPushButton {
     background: #1C2330;

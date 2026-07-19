@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import (
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
+    QPushButton,
     QScrollArea,
     QSplitter,
     QStatusBar,
@@ -20,18 +23,28 @@ from PySide6.QtWidgets import (
 import random
 
 from .models import LibraryItem
+from .config import ConnectionConfig, ConnectionStorageError, ConnectionStore
 from .style import STYLE
 from .widgets import LibraryGrid
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, items: Iterable[LibraryItem] = ()) -> None:
+    def __init__(
+        self,
+        items: Iterable[LibraryItem] = (),
+        connection_store: ConnectionStore | None = None,
+    ) -> None:
         super().__init__()
         self.setWindowTitle("RomM Companion")
         self.resize(1440, 900)
         self.setMinimumSize(1050, 700)
         self.setStyleSheet(STYLE)
         self._items: tuple[LibraryItem, ...] = ()
+        self._connection_store = (
+            connection_store
+            if connection_store is not None
+            else ConnectionStore.system_default()
+        )
 
         root = QWidget()
         root_layout = QVBoxLayout(root)
@@ -50,6 +63,7 @@ class MainWindow(QMainWindow):
 
         status = QStatusBar()
         self.setStatusBar(status)
+        self.load_connection_config()
         self.set_library_items(items)
 
     def build_top_bar(self) -> QWidget:
@@ -64,10 +78,102 @@ class MainWindow(QMainWindow):
         # layout.addWidget(mark)
         layout.addStretch()
 
-        source_status = QLabel("NOT CONNECTED")
-        source_status.setObjectName("statusPill")
-        layout.addWidget(source_status)
+        self.connection_popup = self.build_connection_popup()
+        self.source_status = QPushButton("NOT CONNECTED")
+        self.source_status.setObjectName("statusPill")
+        self.source_status.clicked.connect(self.show_connection_popup)
+        layout.addWidget(self.source_status)
         return bar
+
+    def build_connection_popup(self) -> QFrame:
+        popup = QFrame(self)
+        popup.setWindowFlags(Qt.WindowType.Popup)
+        popup.setObjectName("connectionPopup")
+        popup.setMinimumWidth(320)
+        form = QFormLayout(popup)
+        form.setContentsMargins(16, 16, 16, 16)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(12)
+
+        self.server_url_input = QLineEdit()
+        self.server_url_input.setObjectName("serverUrlInput")
+        form.addRow("Server URL", self.server_url_input)
+
+        self.username_input = QLineEdit()
+        self.username_input.setObjectName("usernameInput")
+        form.addRow("Username", self.username_input)
+
+        self.password_input = QLineEdit()
+        self.password_input.setObjectName("passwordInput")
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        form.addRow("Password", self.password_input)
+
+        self.sign_in_button = QPushButton("Save")
+        self.sign_in_button.setObjectName("primary")
+        self.sign_in_button.setEnabled(False)
+        self.sign_in_button.clicked.connect(self.save_connection)
+        form.addRow(self.sign_in_button)
+
+        for field in (
+            self.server_url_input,
+            self.username_input,
+            self.password_input,
+        ):
+            field.textChanged.connect(self.update_save_enabled)
+
+        QWidget.setTabOrder(self.server_url_input, self.username_input)
+        QWidget.setTabOrder(self.username_input, self.password_input)
+        QWidget.setTabOrder(self.password_input, self.sign_in_button)
+        return popup
+
+    def show_connection_popup(self) -> None:
+        self.connection_popup.adjustSize()
+        popup_width = self.connection_popup.width()
+        position = self.source_status.mapToGlobal(
+            QPoint(self.source_status.width() - popup_width, self.source_status.height())
+        )
+        self.connection_popup.move(position)
+        self.connection_popup.show()
+        self.server_url_input.setFocus(Qt.FocusReason.PopupFocusReason)
+
+    def load_connection_config(self) -> None:
+        try:
+            config = self._connection_store.load_config()
+        except ConnectionStorageError:
+            self.statusBar().showMessage("Connection settings could not be loaded")
+            return
+        if config is not None:
+            self.server_url_input.setText(config.server_url)
+            self.username_input.setText(config.username)
+
+    def update_save_enabled(self) -> None:
+        try:
+            ConnectionConfig.from_input(
+                self.server_url_input.text(), self.username_input.text()
+            )
+        except ValueError:
+            self.sign_in_button.setEnabled(False)
+            return
+        self.sign_in_button.setEnabled(bool(self.password_input.text()))
+
+    def save_connection(self) -> None:
+        try:
+            config = ConnectionConfig.from_input(
+                self.server_url_input.text(), self.username_input.text()
+            )
+            self._connection_store.save(config, self.password_input.text())
+        except ValueError:
+            self.update_save_enabled()
+            return
+        except ConnectionStorageError:
+            self.statusBar().showMessage("Connection settings could not be saved")
+            return
+
+        self.server_url_input.setText(config.server_url)
+        self.username_input.setText(config.username)
+        self.password_input.clear()
+        self.connection_popup.close()
+        self.statusBar().showMessage("Connection settings saved")
 
     def build_sidebar(self) -> QWidget:
         sidebar = QFrame()

@@ -11,6 +11,7 @@ from .window import MainWindow
 
 def main() -> int:
     app = QApplication(sys.argv)
+    app.setOrganizationName("RomM")
     app.setApplicationName("RomM Companion")
     window = MainWindow()
     window.show()
