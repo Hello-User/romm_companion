@@ -14,7 +14,6 @@ from romm_companion.api import (
 from romm_companion.api.connection import verify_connection
 from romm_companion.config import ConnectionConfig
 
-
 TOKEN = "rmm_" + ("a" * 64)
 
 
@@ -53,15 +52,17 @@ class RommApiClientTest(unittest.TestCase):
         for status_code, error_type in cases:
             with self.subTest(status_code=status_code):
                 transport = httpx.MockTransport(
-                    lambda request: httpx.Response(status_code)
+                    lambda request, status_code=status_code: httpx.Response(status_code)
                 )
-                with RommApiClient(
-                    ConnectionConfig.from_input("https://romm.example.test"),
-                    TOKEN,
-                    transport=transport,
-                ) as client:
-                    with self.assertRaises(error_type) as raised:
-                        client.get_json("platforms")
+                with (
+                    RommApiClient(
+                        ConnectionConfig.from_input("https://romm.example.test"),
+                        TOKEN,
+                        transport=transport,
+                    ) as client,
+                    self.assertRaises(error_type) as raised,
+                ):
+                    client.get_json("platforms")
 
                 self.assertNotIn(TOKEN, str(raised.exception))
 
@@ -73,38 +74,46 @@ class RommApiClientTest(unittest.TestCase):
 
         for response in responses:
             with self.subTest(status_code=response.status_code):
-                transport = httpx.MockTransport(lambda request: response)
-                with RommApiClient(
-                    ConnectionConfig.from_input("https://romm.example.test"),
-                    TOKEN,
-                    transport=transport,
-                ) as client:
-                    with self.assertRaises(RommResponseError):
-                        client.get_json("platforms")
+                transport = httpx.MockTransport(
+                    lambda request, response=response: response
+                )
+                with (
+                    RommApiClient(
+                        ConnectionConfig.from_input("https://romm.example.test"),
+                        TOKEN,
+                        transport=transport,
+                    ) as client,
+                    self.assertRaises(RommResponseError),
+                ):
+                    client.get_json("platforms")
 
     def test_maps_timeouts_without_exposing_request_details(self):
         def time_out(request: httpx.Request) -> httpx.Response:
             raise httpx.ReadTimeout("request details", request=request)
 
-        with RommApiClient(
-            ConnectionConfig.from_input("https://romm.example.test"),
-            TOKEN,
-            transport=httpx.MockTransport(time_out),
-        ) as client:
-            with self.assertRaisesRegex(RommTimeoutError, "Connection timed out"):
-                client.get_json("platforms")
+        with (
+            RommApiClient(
+                ConnectionConfig.from_input("https://romm.example.test"),
+                TOKEN,
+                transport=httpx.MockTransport(time_out),
+            ) as client,
+            self.assertRaisesRegex(RommTimeoutError, "Connection timed out"),
+        ):
+            client.get_json("platforms")
 
     def test_maps_transport_failures_without_exposing_request_details(self):
         def fail_to_connect(request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectError("request details", request=request)
 
-        with RommApiClient(
-            ConnectionConfig.from_input("https://romm.example.test"),
-            TOKEN,
-            transport=httpx.MockTransport(fail_to_connect),
-        ) as client:
-            with self.assertRaisesRegex(RommNetworkError, "Could not reach RomM"):
-                client.get_json("platforms")
+        with (
+            RommApiClient(
+                ConnectionConfig.from_input("https://romm.example.test"),
+                TOKEN,
+                transport=httpx.MockTransport(fail_to_connect),
+            ) as client,
+            self.assertRaisesRegex(RommNetworkError, "Could not reach RomM"),
+        ):
+            client.get_json("platforms")
 
     def test_rejects_absolute_traversal_and_inline_query_endpoints(self):
         transport = httpx.MockTransport(
@@ -124,9 +133,8 @@ class RommApiClientTest(unittest.TestCase):
                 "../roms",
                 "roms?limit=20",
             ):
-                with self.subTest(endpoint=endpoint):
-                    with self.assertRaises(ValueError):
-                        client.get_json(endpoint)
+                with self.subTest(endpoint=endpoint), self.assertRaises(ValueError):
+                    client.get_json(endpoint)
 
     def test_plain_http_requires_explicit_configuration(self):
         config = ConnectionConfig.from_input("http://romm.example.test")

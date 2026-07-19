@@ -139,9 +139,7 @@ class MainWindow(QMainWindow):
             lambda: self.connection_panel.set_busy(False)
         )
         self.connection_session.finished.connect(self._finish_pending_close)
-        self.connection_session.message_changed.connect(
-            self.statusBar().showMessage
-        )
+        self.connection_session.message_changed.connect(self.statusBar().showMessage)
 
     def show_connection_popup(self) -> None:
         self.connection_panel.show_for(self.source_status)

@@ -45,9 +45,7 @@ class ConnectionPanel(QFrame):
         layout.addWidget(self.stack)
 
         QWidget.setTabOrder(self.server_url_input, self.client_token_input)
-        QWidget.setTabOrder(
-            self.client_token_input, self.allow_insecure_http_input
-        )
+        QWidget.setTabOrder(self.client_token_input, self.allow_insecure_http_input)
         QWidget.setTabOrder(self.allow_insecure_http_input, self.connect_button)
 
     def _build_connection_form(self) -> QWidget:
@@ -79,9 +77,7 @@ class ConnectionPanel(QFrame):
 
         self.server_url_input.textChanged.connect(self._update_connect_enabled)
         self.client_token_input.textChanged.connect(self._update_connect_enabled)
-        self.allow_insecure_http_input.toggled.connect(
-            self._update_connect_enabled
-        )
+        self.allow_insecure_http_input.toggled.connect(self._update_connect_enabled)
         return connection_form
 
     def _build_connected_view(self) -> QWidget:

@@ -63,11 +63,11 @@ class LibraryView(QWidget):
         empty_layout.addStretch()
         outer.addWidget(self.empty_state, 1)
 
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
         self.grid = LibraryGrid()
-        self.scroll.setWidget(self.grid)
-        outer.addWidget(self.scroll, 1)
+        self.scroll_area.setWidget(self.grid)
+        outer.addWidget(self.scroll_area, 1)
 
         self.set_items(items)
 
@@ -87,7 +87,7 @@ class LibraryView(QWidget):
             self.empty_title.setText("No games")
             self.empty_subtitle.setText(self._choose_emote())
         self.empty_state.setVisible(not has_items)
-        self.scroll.setVisible(has_items)
+        self.scroll_area.setVisible(has_items)
 
     @staticmethod
     def _choose_emote() -> str:

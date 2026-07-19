@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Protocol, TypeAlias
+from typing import Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -18,10 +18,9 @@ from .errors import (
     RommTimeoutError,
 )
 
-
-JsonPrimitive: TypeAlias = None | bool | int | float | str
-JsonValue: TypeAlias = JsonPrimitive | list["JsonValue"] | dict[str, "JsonValue"]
-QueryValue: TypeAlias = str | int | float | bool | None
+type JsonPrimitive = None | bool | int | float | str
+type JsonValue = JsonPrimitive | list["JsonValue"] | dict[str, "JsonValue"]
+type QueryValue = str | int | float | bool | None
 
 
 class ReadOnlyRommApi(Protocol):
@@ -95,9 +94,10 @@ class RommApiClient:
         if "application/json" not in content_type:
             raise RommResponseError("RomM returned an unexpected response")
         try:
-            return response.json()
+            payload: JsonValue = response.json()
         except ValueError as error:
             raise RommResponseError("RomM returned invalid JSON") from error
+        return payload
 
     def close(self) -> None:
         self._client.close()

@@ -41,9 +41,8 @@ class ConnectionConfigTest(unittest.TestCase):
         )
 
         for server_url in invalid_values:
-            with self.subTest(server_url=server_url):
-                with self.assertRaises(ValueError):
-                    ConnectionConfig.from_input(server_url)
+            with self.subTest(server_url=server_url), self.assertRaises(ValueError):
+                ConnectionConfig.from_input(server_url)
 
     def test_client_token_is_not_written_to_qsettings(self):
         with tempfile.TemporaryDirectory() as directory:

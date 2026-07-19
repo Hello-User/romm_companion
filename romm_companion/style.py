@@ -112,7 +112,11 @@ QPushButton:disabled {
 }
 QScrollArea { border: none; background: transparent; }
 QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
-QScrollBar::handle:vertical { background: #7A6BB4; min-height: 30px; border-radius: 5px; }
+QScrollBar::handle:vertical {
+    background: #7A6BB4;
+    min-height: 30px;
+    border-radius: 5px;
+}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QSplitter::handle { background: #0D1117; width: 3px; }
 QStatusBar { background: #161B22; color: #9E8CD6; border-top: 1px solid #1C2330; }

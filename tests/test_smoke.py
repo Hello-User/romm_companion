@@ -6,8 +6,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, QSettings, Qt
 from PySide6.QtGui import QImage
-from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QWidget
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QWidget
 
 from romm_companion import ConnectionStore, LibraryItem, MainWindow, set_artwork
 from romm_companion.api import RommAuthenticationError
@@ -44,7 +44,9 @@ class MemorySecretStore:
         self.token = token
 
 
-def make_connection_store() -> tuple[ConnectionStore, MemorySettings, MemorySecretStore]:
+def make_connection_store() -> tuple[
+    ConnectionStore, MemorySettings, MemorySecretStore
+]:
     settings = MemorySettings()
     secrets = MemorySecretStore()
     return ConnectionStore(settings, secrets), settings, secrets
@@ -92,7 +94,7 @@ class MainWindowSmokeTest(unittest.TestCase):
         library = window.library_view
 
         self.assertTrue(library.empty_state.isVisible())
-        self.assertFalse(library.scroll.isVisible())
+        self.assertFalse(library.scroll_area.isVisible())
         self.assertEqual(library.empty_title.text(), "No games")
         self.assertIsNotNone(window.findChild(QWidget, "sidebar"))
         self.assertEqual(window.platform_summary.text(), "")
@@ -110,7 +112,7 @@ class MainWindowSmokeTest(unittest.TestCase):
         self.app.processEvents()
 
         self.assertFalse(library.empty_state.isVisible())
-        self.assertTrue(library.scroll.isVisible())
+        self.assertTrue(library.scroll_area.isVisible())
         self.assertEqual(len(library.grid.findChildren(LibraryCard)), len(items))
         self.assertEqual(window.platform_summary.text(), "NES\nSNES")
 
@@ -203,9 +205,7 @@ class MainWindowSmokeTest(unittest.TestCase):
         panel.connect_button.click()
         wait_for_connection(window)
 
-        self.assertEqual(
-            store.load_config().server_url, "https://romm.example.test"
-        )
+        self.assertEqual(store.load_config().server_url, "https://romm.example.test")
         self.assertEqual(connection_values[0], (store.load_config(), token))
         self.assertTrue(clients[0].closed)
         self.assertEqual(secrets.token, token)
@@ -254,9 +254,7 @@ class MainWindowSmokeTest(unittest.TestCase):
         panel.connect_button.click()
         wait_for_connection(window)
 
-        self.assertEqual(
-            store.load_config().server_url, "https://old.example.test"
-        )
+        self.assertEqual(store.load_config().server_url, "https://old.example.test")
         self.assertEqual(secrets.token, "rmm_" + ("b" * 64))
         self.assertEqual(window.source_status.text(), "NOT CONNECTED")
         self.assertEqual(

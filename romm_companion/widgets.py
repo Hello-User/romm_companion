@@ -92,8 +92,7 @@ class LibraryGrid(QWidget):
         return max(1, self.width() // 220)
 
     def _rebuild(self) -> None:
-        while self._layout.count():
-            layout_item = self._layout.takeAt(0)
+        while (layout_item := self._layout.takeAt(0)) is not None:
             widget = layout_item.widget()
             if widget is not None:
                 widget.setParent(None)
@@ -101,9 +100,7 @@ class LibraryGrid(QWidget):
 
         columns = self._fitting_columns() if self._items else 0
         for index, item in enumerate(self._items):
-            self._layout.addWidget(
-                LibraryCard(item), index // columns, index % columns
-            )
+            self._layout.addWidget(LibraryCard(item), index // columns, index % columns)
         for column in range(columns):
             self._layout.setColumnStretch(column, 1)
         for column in range(columns, self._columns):
