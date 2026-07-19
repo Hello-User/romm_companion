@@ -1,0 +1,116 @@
+"""Reusable widgets for displaying library items."""
+
+from __future__ import annotations
+
+from typing import Callable, Iterable
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QFrame,
+    QGridLayout,
+    QLabel,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
+
+from .models import LibraryItem
+
+
+def set_artwork(label: QLabel, item: LibraryItem | None) -> None:
+    """Display supplied artwork or an explicit no-artwork state."""
+    label.clear()
+    if item is not None and item.cover is not None and not item.cover.isNull():
+        label.setPixmap(item.cover)
+        return
+    label.setText("NO ARTWORK")
+
+
+class LibraryCard(QFrame):
+    def __init__(
+        self,
+        item: LibraryItem,
+        selected_callback: Callable[[LibraryItem], None] | None = None,
+    ) -> None:
+        super().__init__()
+        self.item = item
+        self.selected_callback = selected_callback
+        self.setObjectName("card")
+        if selected_callback is not None:
+            self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumWidth(190)
+        self.setFixedHeight(292)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(9, 9, 9, 10)
+        layout.setSpacing(8)
+
+        cover = QLabel()
+        cover.setObjectName("artwork")
+        cover.setAlignment(Qt.AlignCenter)
+        cover.setScaledContents(True)
+        cover.setFixedHeight(204)
+        cover.setAttribute(Qt.WA_TransparentForMouseEvents)
+        set_artwork(cover, item)
+        layout.addWidget(cover)
+
+        title = QLabel(item.title)
+        title.setObjectName("gameTitle")
+        title.setWordWrap(True)
+        title.setAttribute(Qt.WA_TransparentForMouseEvents)
+        layout.addWidget(title)
+
+        metadata = [value for value in (item.platform, item.release_year) if value]
+        meta = QLabel("  •  ".join(metadata))
+        meta.setObjectName("muted")
+        meta.setAttribute(Qt.WA_TransparentForMouseEvents)
+        layout.addWidget(meta)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton and self.selected_callback is not None:
+            self.selected_callback(self.item)
+        super().mousePressEvent(event)
+
+
+class LibraryGrid(QWidget):
+    """Scrollable, data-driven card grid with no fixed record limit."""
+
+    def __init__(self, selected_callback: Callable[[LibraryItem], None] | None = None) -> None:
+        super().__init__()
+        self._items: tuple[LibraryItem, ...] = ()
+        self._selected_callback = selected_callback
+        self._layout = QGridLayout(self)
+        self._layout.setContentsMargins(0, 0, 6, 0)
+        self._layout.setHorizontalSpacing(12)
+        self._layout.setVerticalSpacing(12)
+
+    def set_items(self, items: Iterable[LibraryItem]) -> None:
+        self._items = tuple(items)
+        self._rebuild()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if self._items:
+            self._rebuild()
+
+    def _rebuild(self) -> None:
+        while self._layout.count():
+            layout_item = self._layout.takeAt(0)
+            widget = layout_item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+        if not self._items:
+            return
+
+        columns = max(1, self.width() // 220)
+        for index, item in enumerate(self._items):
+            self._layout.addWidget(
+                LibraryCard(item, self._selected_callback),
+                index // columns,
+                index % columns,
+            )
+        for column in range(columns):
+            self._layout.setColumnStretch(column, 1)
