@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from types import ModuleType
 from typing import Protocol
 from urllib.parse import urlsplit, urlunsplit
 
@@ -75,32 +76,32 @@ class SettingsStore(Protocol):
     def status(self) -> QSettings.Status: ...
 
 
+def _load_keyring() -> tuple[ModuleType, type[Exception]]:
+    """Import keyring lazily so configuration works without a credential service."""
+    try:
+        import keyring
+        from keyring.errors import KeyringError
+    except ImportError as error:
+        raise ConnectionStorageError("Credential storage is unavailable") from error
+    return keyring, KeyringError
+
+
 class KeyringTokenStore:
     """Store the active RomM Client API Token in the credential service."""
 
     def get_token(self) -> str | None:
-        try:
-            import keyring
-            from keyring.errors import KeyringError
-        except ImportError as error:
-            raise ConnectionStorageError("Credential storage is unavailable") from error
-
+        keyring, keyring_error = _load_keyring()
         try:
             token = keyring.get_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT)
-        except KeyringError as error:
+        except keyring_error as error:
             raise ConnectionStorageError("Credential storage is unavailable") from error
-        return token if token is not None and _CLIENT_TOKEN_PATTERN.fullmatch(token) else None
+        return token if token is not None and is_valid_client_token(token) else None
 
     def set_token(self, token: str) -> None:
-        try:
-            import keyring
-            from keyring.errors import KeyringError
-        except ImportError as error:
-            raise ConnectionStorageError("Credential storage is unavailable") from error
-
+        keyring, keyring_error = _load_keyring()
         try:
             keyring.set_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT, token)
-        except KeyringError as error:
+        except keyring_error as error:
             raise ConnectionStorageError("Credential storage is unavailable") from error
 
 
