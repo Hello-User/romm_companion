@@ -7,12 +7,12 @@ from typing import Protocol
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
-from ..api import ReadOnlyRommApi, RommApiClient, RommApiError
+from ..api import ReadOnlyRommApi, RommApiClient, RommApiError, RommImageApi
 from ..api.connection import verify_connection
 from ..config import ConnectionConfig
 
 
-class ManagedReadOnlyRommApi(ReadOnlyRommApi, Protocol):
+class ManagedReadOnlyRommApi(ReadOnlyRommApi, RommImageApi, Protocol):
     def close(self) -> None: ...
 
 
