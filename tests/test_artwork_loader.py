@@ -51,7 +51,10 @@ def wait_for_loader(loader: ArtworkLoader) -> None:
         QApplication.processEvents()
         if not loader.is_running:
             QApplication.processEvents()
-            return
+            QTest.qWait(1)
+            QApplication.processEvents()
+            if not loader.is_running:
+                return
         QTest.qWait(5)
     raise AssertionError("Artwork loader did not finish")
 

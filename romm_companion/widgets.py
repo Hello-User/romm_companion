@@ -48,13 +48,13 @@ class LibraryCard(QFrame):
         layout.setContentsMargins(9, 9, 9, 10)
         layout.setSpacing(8)
 
-        cover = QLabel()
-        cover.setObjectName("artwork")
-        cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        cover.setScaledContents(True)
-        cover.setFixedHeight(204)
-        set_artwork(cover, item)
-        layout.addWidget(cover)
+        self.artwork = QLabel()
+        self.artwork.setObjectName("artwork")
+        self.artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.artwork.setScaledContents(True)
+        self.artwork.setFixedHeight(204)
+        set_artwork(self.artwork, item)
+        layout.addWidget(self.artwork)
 
         title = QLabel(item.title)
         title.setObjectName("gameTitle")
@@ -66,6 +66,10 @@ class LibraryCard(QFrame):
         meta.setObjectName("muted")
         layout.addWidget(meta)
 
+    def update_item(self, item: LibraryItem) -> None:
+        self.item = item
+        set_artwork(self.artwork, item)
+
 
 class LibraryGrid(QWidget):
     """Scrollable, data-driven card grid with no fixed record limit."""
@@ -73,6 +77,7 @@ class LibraryGrid(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self._items: tuple[LibraryItem, ...] = ()
+        self._cards: dict[str, LibraryCard] = {}
         self._columns = 0
         self._layout = QGridLayout(self)
         self._layout.setContentsMargins(0, 0, 6, 0)
@@ -98,11 +103,18 @@ class LibraryGrid(QWidget):
                 self._layout.setColumnStretch(column, 1)
             self._columns = columns
         for index, item in enumerate(additions, start=start):
-            self._layout.addWidget(
-                LibraryCard(item),
-                index // columns,
-                index % columns,
-            )
+            self._add_card(item, index, columns)
+
+    def update_item(self, item: LibraryItem) -> None:
+        for index, existing in enumerate(self._items):
+            if existing.identifier == item.identifier:
+                items = list(self._items)
+                items[index] = item
+                self._items = tuple(items)
+                break
+        card = self._cards.get(item.identifier)
+        if card is not None:
+            card.update_item(item)
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -119,11 +131,17 @@ class LibraryGrid(QWidget):
                 widget.setParent(None)
                 widget.deleteLater()
 
+        self._cards.clear()
         columns = self._fitting_columns() if self._items else 0
         for index, item in enumerate(self._items):
-            self._layout.addWidget(LibraryCard(item), index // columns, index % columns)
+            self._add_card(item, index, columns)
         for column in range(columns):
             self._layout.setColumnStretch(column, 1)
         for column in range(columns, self._columns):
             self._layout.setColumnStretch(column, 0)
         self._columns = columns
+
+    def _add_card(self, item: LibraryItem, index: int, columns: int) -> None:
+        card = LibraryCard(item)
+        self._cards[item.identifier] = card
+        self._layout.addWidget(card, index // columns, index % columns)

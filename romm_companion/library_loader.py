@@ -7,7 +7,7 @@ from collections.abc import Callable
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from .api import RommApiError
-from .api.roms import iter_library_item_pages
+from .api.roms import iter_library_pages
 from .connection.check import ManagedReadOnlyRommApi
 
 LibraryClientFactory = Callable[[], ManagedReadOnlyRommApi]
@@ -15,6 +15,7 @@ LibraryClientFactory = Callable[[], ManagedReadOnlyRommApi]
 
 class _LibraryWorker(QObject):
     items_available = Signal(object)
+    artwork_requests_available = Signal(object)
     succeeded = Signal()
     failed = Signal(str)
     finished = Signal()
@@ -28,8 +29,10 @@ class _LibraryWorker(QObject):
         client: ManagedReadOnlyRommApi | None = None
         try:
             client = self._client_factory()
-            for items in iter_library_item_pages(client):
-                self.items_available.emit(items)
+            for page in iter_library_pages(client):
+                self.items_available.emit(page.items)
+                if page.artwork_requests:
+                    self.artwork_requests_available.emit(page.artwork_requests)
         except (ValueError, RommApiError) as error:
             self.failed.emit(str(error))
         except Exception:
@@ -48,6 +51,7 @@ class LibraryLoader(QObject):
     """Own one background library fetch and its thread lifecycle."""
 
     items_available = Signal(object)
+    artwork_requests_available = Signal(object)
     succeeded = Signal()
     failed = Signal(str)
     finished = Signal()
@@ -70,6 +74,7 @@ class LibraryLoader(QObject):
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.items_available.connect(self.items_available)
+        worker.artwork_requests_available.connect(self.artwork_requests_available)
         worker.succeeded.connect(self.succeeded)
         worker.failed.connect(self.failed)
         worker.finished.connect(thread.quit)

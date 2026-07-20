@@ -104,15 +104,16 @@ class _ArtworkWorker(QObject):
             finally:
                 self.finished.emit()
 
-    @staticmethod
-    def _load_image(client: ManagedRommImageApi, asset_path: str) -> QImage | None:
+    def _load_image(
+        self, client: ManagedRommImageApi, asset_path: str
+    ) -> QImage | None:
         try:
             content = client.get_image_bytes(asset_path)
         except (ValueError, RommApiError):
             return None
         except Exception:
             return None
-        return _decode_image(content)
+        return None if self._is_cancelled() else _decode_image(content)
 
     def _take_request(self) -> ArtworkRequest | None:
         with self._condition:

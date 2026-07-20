@@ -4,7 +4,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPoint, QSettings, Qt
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPoint, QSettings, Qt
 from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QWidget
@@ -53,9 +53,15 @@ def make_connection_store() -> tuple[
 
 
 class FakeRommApiClient:
-    def __init__(self, payload: object = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        payload: object = None,
+        error: Exception | None = None,
+        images: dict[str, bytes | Exception] | None = None,
+    ) -> None:
         self.payload = payload
         self.error = error
+        self.images = images or {}
         self.closed = False
 
     def get_json(self, endpoint: str, *, params=None):
@@ -67,6 +73,13 @@ class FakeRommApiClient:
             return {"items": [], "total": 0}
         return []
 
+    def get_image_bytes(self, asset_path: str, *, max_bytes: int = 0) -> bytes:
+        del max_bytes
+        response = self.images[asset_path]
+        if isinstance(response, Exception):
+            raise response
+        return response
+
     def close(self) -> None:
         self.closed = True
 
@@ -77,6 +90,7 @@ def wait_for_background_work(window: MainWindow) -> None:
         if (
             not window.connection_session.is_running
             and not window.library_loader.is_running
+            and not window.artwork_loader.is_running
             and window.source_status.text() != "CONNECTING"
         ):
             QApplication.processEvents()
@@ -85,10 +99,23 @@ def wait_for_background_work(window: MainWindow) -> None:
             if (
                 not window.connection_session.is_running
                 and not window.library_loader.is_running
+                and not window.artwork_loader.is_running
             ):
                 return
         QTest.qWait(5)
     raise AssertionError("Background work did not finish")
+
+
+def make_png() -> bytes:
+    image = QImage(4, 4, QImage.Format.Format_RGB32)
+    image.fill(Qt.GlobalColor.darkMagenta)
+    content = QByteArray()
+    buffer = QBuffer(content)
+    if not buffer.open(QIODevice.OpenModeFlag.WriteOnly) or not image.save(
+        buffer, "PNG"
+    ):
+        raise AssertionError("Could not create test image")
+    return bytes(content)
 
 
 class MainWindowSmokeTest(unittest.TestCase):
@@ -174,6 +201,30 @@ class MainWindowSmokeTest(unittest.TestCase):
         rebuilt_cards = grid.findChildren(LibraryCard)
         self.assertEqual(len(rebuilt_cards), len(items) + len(additions))
         self.assertNotEqual(rebuilt_cards, appended_cards)
+
+    def test_grid_updates_artwork_in_place_and_retains_it_after_rebuild(self):
+        grid = LibraryGrid()
+        self.addCleanup(grid.close)
+        grid.show()
+        grid.resize(700, 600)
+        grid.set_items([LibraryItem(identifier="1", title="Game")])
+        self.app.processEvents()
+        original_card = grid.findChildren(LibraryCard)[0]
+        image = QImage(4, 4, QImage.Format.Format_RGB32)
+        image.fill(Qt.GlobalColor.darkMagenta)
+
+        grid.update_item(LibraryItem(identifier="1", title="Game", cover=image))
+        self.app.processEvents()
+
+        self.assertIn(original_card, grid.findChildren(LibraryCard))
+        self.assertFalse(original_card.artwork.pixmap().isNull())
+
+        grid.resize(210, 600)
+        self.app.processEvents()
+        rebuilt_card = grid.findChildren(LibraryCard)[0]
+
+        self.assertIsNot(rebuilt_card, original_card)
+        self.assertFalse(rebuilt_card.artwork.pixmap().isNull())
 
     def test_not_connected_opens_client_token_popup_and_connects(self):
         store, settings, secrets = make_connection_store()
@@ -471,6 +522,73 @@ class MainWindowSmokeTest(unittest.TestCase):
         )
         self.assertEqual(window.statusBar().currentMessage(), "Connected")
         self.assertTrue(clients[1].closed)
+
+    def test_cover_artwork_updates_the_existing_card_progressively(self):
+        release = threading.Event()
+        image_request_started = threading.Event()
+        cover_path = "/assets/romm/resources/roms/3/9/cover/small.png"
+
+        class BlockingArtworkClient(FakeRommApiClient):
+            def get_image_bytes(self, asset_path: str, *, max_bytes: int = 0) -> bytes:
+                del max_bytes
+                self.asserted_path = asset_path
+                image_request_started.set()
+                release.wait(5)
+                return make_png()
+
+        store, _, _ = make_connection_store()
+        clients: list[FakeRommApiClient] = []
+
+        def client_factory(config, token):
+            del config, token
+            if not clients:
+                client = FakeRommApiClient()
+            elif len(clients) == 1:
+                client = FakeRommApiClient(
+                    payload={
+                        "items": [
+                            {
+                                "id": 9,
+                                "name": "EarthBound",
+                                "path_cover_small": cover_path,
+                            }
+                        ],
+                        "total": 1,
+                    }
+                )
+            else:
+                client = BlockingArtworkClient()
+            clients.append(client)
+            return client
+
+        window = MainWindow(connection_store=store, client_factory=client_factory)
+        self.addCleanup(window.close)
+        self.addCleanup(release.set)
+        panel = window.connection_panel
+        panel.server_url_input.setText("https://romm.example.test")
+        panel.client_token_input.setText("rmm_" + ("a" * 64))
+        panel.connect_button.click()
+
+        for _ in range(200):
+            self.app.processEvents()
+            if image_request_started.is_set() and window.library_view.items:
+                break
+            QTest.qWait(5)
+
+        self.assertTrue(image_request_started.is_set())
+        original_card = window.library_view.grid.findChildren(LibraryCard)[0]
+        self.assertEqual(original_card.artwork.text(), "NO ARTWORK")
+
+        release.set()
+        wait_for_background_work(window)
+
+        current_card = window.library_view.grid.findChildren(LibraryCard)[0]
+        self.assertIs(current_card, original_card)
+        self.assertFalse(current_card.artwork.pixmap().isNull())
+        self.assertIsNotNone(window.library_view.items[0].cover)
+        self.assertEqual(window.statusBar().currentMessage(), "Connected")
+        self.assertEqual(clients[2].asserted_path, cover_path)
+        self.assertTrue(clients[2].closed)
 
     def test_later_library_failure_keeps_available_items(self):
         store, _, _ = make_connection_store()

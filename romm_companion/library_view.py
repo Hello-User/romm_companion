@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import random
 from collections.abc import Iterable
+from dataclasses import replace
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage
 from PySide6.QtWidgets import (
     QFrame,
     QLabel,
@@ -87,6 +89,17 @@ class LibraryView(QWidget):
         self._items += additions
         self.grid.append_items(additions)
         self._update_state()
+
+    def update_cover(self, identifier: str, cover: QImage) -> None:
+        for index, item in enumerate(self._items):
+            if item.identifier != identifier:
+                continue
+            updated_item = replace(item, cover=cover)
+            items = list(self._items)
+            items[index] = updated_item
+            self._items = tuple(items)
+            self.grid.update_item(updated_item)
+            return
 
     def _update_state(self) -> None:
         has_items = bool(self._items)

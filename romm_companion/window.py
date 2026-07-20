@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QImage
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from .api import RommApiClient
+from .api.roms import ArtworkRequest
+from .artwork_loader import ArtworkLoader
 from .config import ConnectionConfig, ConnectionStore
 from .connection import (
     ClientFactory,
@@ -54,6 +56,7 @@ class MainWindow(QMainWindow):
             self,
         )
         self.library_loader = LibraryLoader(self)
+        self.artwork_loader = ArtworkLoader(self)
         self.library_view = LibraryView(items)
 
         root = QWidget()
@@ -74,11 +77,13 @@ class MainWindow(QMainWindow):
 
         self._library_generation = 0
         self._active_library_generation: int | None = None
+        self._active_artwork_generation: int | None = None
         self._pending_library_load: tuple[int, LibraryClientFactory] | None = None
         self._close_after_background_work = False
         self._closing = False
         self._connect_connection_signals()
         self._connect_library_signals()
+        self._connect_artwork_signals()
         self.connection_session.initialize()
 
     def _build_top_bar(self) -> QWidget:
@@ -152,10 +157,18 @@ class MainWindow(QMainWindow):
 
     def _connect_library_signals(self) -> None:
         self.library_loader.items_available.connect(self._library_items_available)
+        self.library_loader.artwork_requests_available.connect(
+            self._artwork_requests_available
+        )
         self.library_loader.succeeded.connect(self._library_loaded)
         self.library_loader.failed.connect(self._library_failed)
         self.library_loader.finished.connect(self._library_load_finished)
         self.library_loader.finished.connect(self._finish_pending_close)
+
+    def _connect_artwork_signals(self) -> None:
+        self.artwork_loader.artwork_available.connect(self._artwork_available)
+        self.artwork_loader.finished.connect(self._artwork_load_finished)
+        self.artwork_loader.finished.connect(self._finish_pending_close)
 
     def show_connection_popup(self) -> None:
         self.connection_panel.show_for(self.source_status)
@@ -196,7 +209,12 @@ class MainWindow(QMainWindow):
 
     def _start_pending_library_load(self) -> None:
         pending = self._pending_library_load
-        if pending is None or self._closing or self.library_loader.is_running:
+        if (
+            pending is None
+            or self._closing
+            or self.library_loader.is_running
+            or self.artwork_loader.is_running
+        ):
             return
         generation, client_factory = pending
         self._pending_library_load = None
@@ -206,14 +224,28 @@ class MainWindow(QMainWindow):
         ):
             return
         self._active_library_generation = generation
+        self._active_artwork_generation = generation
         self.set_library_items(())
         self.statusBar().showMessage("Loading library")
+        self.artwork_loader.start(client_factory)
         self.library_loader.start(client_factory)
 
     def _library_items_available(self, items: tuple[LibraryItem, ...]) -> None:
         if self._active_library_generation != self._library_generation:
             return
         self.append_library_items(items)
+
+    def _artwork_requests_available(self, requests: tuple[ArtworkRequest, ...]) -> None:
+        if (
+            self._active_library_generation != self._library_generation
+            or self._active_artwork_generation != self._library_generation
+        ):
+            return
+        self.artwork_loader.enqueue(requests)
+
+    def _artwork_available(self, identifier: str, image: QImage) -> None:
+        if self._active_artwork_generation == self._library_generation:
+            self.library_view.update_cover(identifier, image)
 
     def _library_loaded(self) -> None:
         if self._active_library_generation != self._library_generation:
@@ -225,12 +257,19 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(message)
 
     def _library_load_finished(self) -> None:
+        if self._active_artwork_generation == self._active_library_generation:
+            self.artwork_loader.finish_submissions()
         self._active_library_generation = None
+        self._start_pending_library_load()
+
+    def _artwork_load_finished(self) -> None:
+        self._active_artwork_generation = None
         self._start_pending_library_load()
 
     def _clear_library(self) -> None:
         self._library_generation += 1
         self._pending_library_load = None
+        self.artwork_loader.cancel()
         self.set_library_items(())
 
     def _finish_pending_close(self) -> None:
@@ -238,6 +277,7 @@ class MainWindow(QMainWindow):
             self._close_after_background_work
             and not self.connection_session.is_running
             and not self.library_loader.is_running
+            and not self.artwork_loader.is_running
         ):
             self._close_after_background_work = False
             self.close()
@@ -245,16 +285,23 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         self._closing = True
         self._pending_library_load = None
+        self.artwork_loader.cancel()
         checking_connection = self.connection_session.is_running
         loading_library = self.library_loader.is_running
-        if checking_connection or loading_library:
+        loading_artwork = self.artwork_loader.is_running
+        if checking_connection or loading_library or loading_artwork:
             self._close_after_background_work = True
-            if checking_connection and loading_library:
+            active_work_count = sum(
+                (checking_connection, loading_library, loading_artwork)
+            )
+            if active_work_count > 1:
                 message = "Closing after background work"
             elif checking_connection:
                 message = "Closing after the connection check"
-            else:
+            elif loading_library:
                 message = "Closing after the library load"
+            else:
+                message = "Closing after the artwork load"
             self.statusBar().showMessage(message)
             event.ignore()
             return
