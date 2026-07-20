@@ -166,6 +166,34 @@ class MainWindowSmokeTest(unittest.TestCase):
         set_artwork(label, LibraryItem(identifier="2", title="Game"))
         self.assertEqual(label.text(), "NO ARTWORK")
 
+    def test_library_card_artwork_preserves_the_source_aspect_ratio(self):
+        image = QImage(400, 200, QImage.Format.Format_RGB32)
+        image.fill(Qt.GlobalColor.darkMagenta)
+        card = LibraryCard(LibraryItem(identifier="1", title="Landscape", cover=image))
+        self.addCleanup(card.close)
+        card.resize(220, card.height())
+        card.show()
+        self.app.processEvents()
+
+        pixmap = card.artwork.pixmap()
+        self.assertFalse(pixmap.isNull())
+        self.assertEqual(pixmap.width(), pixmap.height() * 2)
+        self.assertLessEqual(pixmap.width(), card.artwork.contentsRect().width())
+        self.assertLessEqual(pixmap.height(), card.artwork.contentsRect().height())
+
+    def test_library_card_uses_a_two_by_three_artwork_viewport(self):
+        card = LibraryCard(LibraryItem(identifier="1", title="Game"))
+        self.addCleanup(card.close)
+        card.resize(220, card.height())
+        card.show()
+        self.app.processEvents()
+
+        self.assertAlmostEqual(
+            card.artwork.width() / card.artwork.height(),
+            2 / 3,
+            places=2,
+        )
+
     def test_grid_appends_cards_and_rebuilds_only_for_column_changes(self):
         grid = LibraryGrid()
         self.addCleanup(grid.close)

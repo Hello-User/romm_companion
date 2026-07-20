@@ -18,6 +18,9 @@ from PySide6.QtWidgets import (
 
 from .models import LibraryItem
 
+_ARTWORK_WIDTH_RATIO = 2
+_ARTWORK_HEIGHT_RATIO = 3
+
 
 class FullRowCheckBox(QCheckBox):
     """A checkbox whose complete row, including its label, toggles it."""
@@ -26,11 +29,46 @@ class FullRowCheckBox(QCheckBox):
         return self.rect().contains(position)
 
 
+class _ArtworkLabel(QLabel):
+    """An artwork viewport that rescales from the undistorted source image."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._source_pixmap = QPixmap()
+
+    def clear(self) -> None:
+        self._source_pixmap = QPixmap()
+        super().clear()
+
+    def set_source_pixmap(self, pixmap: QPixmap) -> None:
+        self._source_pixmap = QPixmap(pixmap)
+        super().clear()
+        self._scale_source_pixmap()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._scale_source_pixmap()
+
+    def _scale_source_pixmap(self) -> None:
+        if self._source_pixmap.isNull() or self.contentsRect().size().isEmpty():
+            return
+        scaled = self._source_pixmap.scaled(
+            self.contentsRect().size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        super().setPixmap(scaled)
+
+
 def set_artwork(label: QLabel, item: LibraryItem | None) -> None:
     """Display supplied artwork or an explicit no-artwork state."""
     label.clear()
     if item is not None and item.cover is not None and not item.cover.isNull():
-        label.setPixmap(QPixmap.fromImage(item.cover))
+        pixmap = QPixmap.fromImage(item.cover)
+        if isinstance(label, _ArtworkLabel):
+            label.set_source_pixmap(pixmap)
+        else:
+            label.setPixmap(pixmap)
         return
     label.setText("NO ARTWORK")
 
@@ -42,17 +80,14 @@ class LibraryCard(QFrame):
         self.setObjectName("card")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMinimumWidth(190)
-        self.setFixedHeight(292)
 
-        layout = QVBoxLayout(self)
+        layout = self._card_layout = QVBoxLayout(self)
         layout.setContentsMargins(9, 9, 9, 10)
         layout.setSpacing(8)
 
-        self.artwork = QLabel()
+        self.artwork = _ArtworkLabel()
         self.artwork.setObjectName("artwork")
         self.artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.artwork.setScaledContents(True)
-        self.artwork.setFixedHeight(204)
         set_artwork(self.artwork, item)
         layout.addWidget(self.artwork)
 
@@ -66,9 +101,37 @@ class LibraryCard(QFrame):
         meta.setObjectName("muted")
         layout.addWidget(meta)
 
+        self._resize_for_width(self.minimumWidth())
+
     def update_item(self, item: LibraryItem) -> None:
         self.item = item
         set_artwork(self.artwork, item)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._resize_for_width(event.size().width())
+
+    def _resize_for_width(self, width: int) -> None:
+        layout = self._card_layout
+        margins = layout.contentsMargins()
+        frame_width = max(0, self.width() - self.contentsRect().width())
+        content_width = max(1, width - frame_width)
+        artwork_width = max(
+            1,
+            content_width - margins.left() - margins.right(),
+        )
+        artwork_height = round(
+            artwork_width * _ARTWORK_HEIGHT_RATIO / _ARTWORK_WIDTH_RATIO
+        )
+        if self.artwork.height() != artwork_height:
+            self.artwork.setFixedHeight(artwork_height)
+            layout.invalidate()
+
+        card_height = layout.heightForWidth(width)
+        if card_height < 0:
+            card_height = layout.sizeHint().height()
+        if self.height() != card_height:
+            self.setFixedHeight(card_height)
 
 
 class LibraryGrid(QWidget):
